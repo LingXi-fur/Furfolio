@@ -1,0 +1,40 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            os: macos-latest
+          - platform: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - run: npm run check
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: npm run tauri -- build --no-bundle
