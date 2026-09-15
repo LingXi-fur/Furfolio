@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-labelledby="fox-title fox-desc" role="img">
+  <title id="fox-title">温和认真、正在倾听的年轻成年狐狸伙伴</title>
+  <desc id="fox-desc">原创日系 Kemono 三分之四胸像：窄楔头、连续收尖的长吻、后掠颊线、较长颈与前倾肩。</desc>
+
+  <g id="rear-appendages" stroke="#3B2926" stroke-width="8" stroke-linejoin="round">
+    <path fill="#914331" d="M183 193C162 158 162 112 184 70C207 96 221 126 225 163Z"/>
+    <path fill="#3B2926" stroke="none" d="M181 162C174 137 177 111 185 91C198 111 207 133 209 155Z"/>
+  </g>
+
+  <g id="torso" stroke="#3B2926" stroke-width="9" stroke-linejoin="round">
+    <path fill="#C65D3A" d="M54 516C63 454 105 414 169 395C218 380 283 381 346 399C405 416 444 456 461 516Z"/>
+    <path id="structural-shadow" fill="#914331" stroke="none" d="M300 390C357 400 415 430 444 475C452 488 458 502 461 516H287C306 478 311 431 300 390Z"/>
+  </g>
+
+  <g id="neck" stroke="#3B2926" stroke-width="9" stroke-linejoin="round">
+    <path fill="#C65D3A" d="M201 326C216 349 213 372 188 397C221 397 251 410 275 435C278 398 297 369 327 350L306 311Z"/>
+    <path fill="#914331" stroke="none" d="M275 435C278 398 297 369 327 350L306 311L271 335C281 368 282 402 275 435Z"/>
+  </g>
+
+  <g id="head" stroke="#3B2926" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#C65D3A" d="M151 235C154 197 177 168 211 153L230 103L267 145C298 140 329 148 350 168C371 188 379 216 374 244C391 252 406 265 419 282L428 294L416 308C397 329 370 339 337 337C320 356 296 368 267 371C238 373 212 365 192 349L166 354L176 333L151 322L174 304C157 284 148 260 151 235Z"/>
+    <path fill="#C65D3A" d="M260 148C281 108 313 81 354 69C359 108 350 145 328 177Z"/>
+    <path fill="#3B2926" stroke="none" d="M280 143C296 118 317 101 341 91C342 116 335 141 320 164Z"/>
+  </g>
+
+  <g id="light-structure" fill="#F2DFC8" stroke="#3B2926" stroke-width="7" stroke-linejoin="round">
+    <path d="M278 278C303 268 331 268 356 275C382 283 405 286 428 294L416 308C397 329 370 339 337 337C321 355 297 367 267 371C277 344 282 310 278 278Z"/>
+    <path d="M192 349C212 365 238 373 267 371C257 391 260 414 275 435C251 410 221 397 188 397C209 378 211 361 192 349Z"/>
+  </g>
+
+  <g id="facial-shadow" fill="#914331">
+    <path d="M328 177C352 192 372 216 374 244C355 242 338 248 322 260C316 228 318 201 328 177Z"/>
+    <path d="M337 337C370 339 397 329 416 308C406 331 386 345 359 350C347 352 335 348 324 341Z"/>
+  </g>
+
+  <g id="fur-tufts" fill="#C65D3A" stroke="#3B2926" stroke-width="8" stroke-linejoin="round">
+    <path d="M207 155L216 132L230 150L247 130L255 148"/>
+    <path d="M170 270L144 282L168 292L151 308L176 307"/>
+    <path d="M188 397L169 419L194 416L186 441L210 428"/>
+  </g>
+
+  <g id="eyes" stroke="#3B2926" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#F2DFC8" stroke="none" d="M187 228C207 215 238 214 262 226C243 239 211 241 187 228Z"/>
+    <path fill="#4F8077" stroke-width="3" d="M214 216C229 215 239 224 239 236C228 240 216 238 208 231C208 224 210 219 214 216Z"/>
+    <path fill="#3B2926" stroke="none" d="M220 216C229 218 233 225 231 236C224 238 218 236 214 231C213 224 215 219 220 216Z"/>
+    <path fill="#FFF6E8" stroke="none" d="M215 220C219 217 224 219 224 222C222 225 218 226 215 223Z"/>
+    <path fill="#F2DFC8" stroke="none" d="M282 226C299 217 321 218 338 230C323 240 301 240 282 226Z"/>
+    <path fill="#4F8077" stroke-width="3" d="M304 219C316 219 323 227 321 237C312 240 302 237 296 231C296 225 299 221 304 219Z"/>
+    <path fill="#3B2926" stroke="none" d="M309 220C317 222 319 228 316 237C311 238 306 235 303 232C303 226 305 222 309 220Z"/>
+    <path fill="none" stroke-width="8" d="M184 226C207 210 239 210 264 224"/>
+    <path fill="none" stroke-width="7" d="M279 224C298 214 322 215 340 229"/>
+    <path fill="none" stroke-width="3" d="M192 238C206 243 222 243 237 238"/>
+    <path fill="none" stroke-width="3" d="M289 236C300 240 313 240 324 237"/>
+  </g>
+
+  <g id="muzzle-details" fill="#3B2926" stroke="#3B2926" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="3" d="M408 282C417 283 424 287 428 294C424 301 417 304 408 303C400 299 398 291 401 286Z"/>
+    <path fill="none" stroke-width="5" d="M406 305C391 313 374 315 358 311C349 309 341 312 334 318"/>
+    <path fill="none" stroke-width="4" d="M358 311C357 317 354 322 348 325"/>
+    <path fill="none" stroke-width="4" d="M279 274C290 268 302 268 313 272"/>
+  </g>
+</svg>

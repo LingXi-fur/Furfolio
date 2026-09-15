@@ -1,54 +1,113 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./App.css";
+import { CharacterDetail } from "./components/CharacterDetail";
+import { CharacterForm } from "./components/CharacterForm";
+import { LibraryView } from "./components/LibraryView";
+import {
+  createCharacter,
+  deleteCharacter,
+  getCharacter,
+  listCharacters,
+  updateCharacter,
+  type Character,
+  type CharacterInput,
+  type CharacterSummary,
+  type CommandError,
+} from "./data/characters";
 
 type Theme = "light" | "dark";
+type View = { name: "library" } | { name: "create" } | { name: "detail"; id: string } | { name: "edit"; id: string };
 
 function getInitialTheme(): Theme {
   const savedTheme = localStorage.getItem("furfolio-theme");
-  if (savedTheme === "light" || savedTheme === "dark") {
-    return savedTheme;
-  }
-
+  if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function PawMark() {
+function FurfolioMark() {
   return (
-    <svg aria-hidden="true" className="brand-mark" viewBox="0 0 48 48">
-      <path d="M24 20.5c-6.7 0-13.3 6.1-13.3 12.2 0 4.2 3.3 6.8 7.3 5.6 2.4-.7 3.8-1.7 6-1.7s3.6 1 6 1.7c4 1.2 7.3-1.4 7.3-5.6 0-6.1-6.6-12.2-13.3-12.2Z" />
-      <ellipse cx="9.8" cy="21" rx="5.1" ry="6.5" transform="rotate(-25 9.8 21)" />
-      <ellipse cx="19.1" cy="11.2" rx="5.2" ry="6.8" transform="rotate(-8 19.1 11.2)" />
-      <ellipse cx="28.9" cy="11.2" rx="5.2" ry="6.8" transform="rotate(8 28.9 11.2)" />
-      <ellipse cx="38.2" cy="21" rx="5.1" ry="6.5" transform="rotate(25 38.2 21)" />
+    <svg aria-hidden="true" className="brand-mark" viewBox="0 0 44 44">
+      <path className="mark-sheet mark-sheet-back" d="M10 9h21l5 5v22H10Z" />
+      <path className="mark-sheet mark-sheet-front" d="M7 6h21l5 5v22H7Z" />
+      <path className="mark-fold" d="M28 6v6h5" />
+      <path className="mark-letter" d="M14 14h10M14 14v13M14 20h8" />
+      <path className="mark-swatch" d="M25 26h4v4h-4z" />
     </svg>
   );
+}
+
+function LibraryIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5.5h16v14H4zM8 5.5v14M12 9h5M12 13h5" /></svg>;
+}
+
+function SettingsIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="m19 13.5 1.4 1.1-2 3.4-1.8-.7a7 7 0 0 1-2.1 1.2l-.3 1.9h-4l-.3-1.9a7 7 0 0 1-2.1-1.2L6 18l-2-3.4 1.4-1.1a7 7 0 0 1 0-2.5L4 9.9l2-3.4 1.8.7A7 7 0 0 1 10 6l.3-1.9h4l.3 1.9a7 7 0 0 1 2.1 1.2l1.8-.7 2 3.4-1.4 1.1a7 7 0 0 1 0 2.5Z" /></svg>;
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as CommandError).message);
+  }
+  return fallback;
 }
 
 function App() {
   const { i18n, t } = useTranslation();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [view, setView] = useState<View>({ name: "library" });
+  const [characters, setCharacters] = useState<CharacterSummary[]>([]);
+  const [selected, setSelected] = useState<Character | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadLibrary = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setCharacters(await listCharacters());
+    } catch (loadError) {
+      setError(errorMessage(loadError, t("errors.storage")));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
+    let active = true;
+    listCharacters()
+      .then((loadedCharacters) => {
+        if (active) setCharacters(loadedCharacters);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(errorMessage(loadError, t("errors.storage")));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [t]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   useEffect(() => {
     const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-
-    function followSystemTheme(event: MediaQueryListEvent) {
-      if (localStorage.getItem("furfolio-theme") === null) {
-        setTheme(event.matches ? "dark" : "light");
-      }
-    }
-
-    colorScheme.addEventListener("change", followSystemTheme);
-    return () => colorScheme.removeEventListener("change", followSystemTheme);
+    const follow = (event: MediaQueryListEvent) => {
+      if (localStorage.getItem("furfolio-theme") === null) setTheme(event.matches ? "dark" : "light");
+    };
+    colorScheme.addEventListener("change", follow);
+    return () => colorScheme.removeEventListener("change", follow);
   }, []);
-
+  useEffect(() => { document.documentElement.lang = i18n.resolvedLanguage ?? "en"; }, [i18n.resolvedLanguage]);
   useEffect(() => {
-    document.documentElement.lang = i18n.resolvedLanguage ?? "en";
-  }, [i18n.resolvedLanguage]);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || view.name === "library" || document.querySelector("dialog[open]")) return;
+      if (view.name === "edit") setView({ name: "detail", id: view.id });
+      else setView({ name: "library" });
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [view]);
 
   function changeTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
@@ -61,86 +120,101 @@ function App() {
     localStorage.setItem("furfolio-language", language);
   }
 
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#main" aria-label={t("brand")}>
-          <span className="brand-icon">
-            <PawMark />
-          </span>
-          <span>{t("brand")}</span>
-        </a>
+  async function openCharacter(id: string) {
+    setError(null);
+    try {
+      setSelected(await getCharacter(id));
+      setView({ name: "detail", id });
+    } catch (loadError) {
+      setError(errorMessage(loadError, t("errors.storage")));
+    }
+  }
 
-        <nav className="navigation" aria-label={t("navigation.library")}>
-          <a className="navigation-link active" href="#main" aria-current="page">
-            {t("navigation.library")}
-          </a>
-          <button className="navigation-link" type="button">
-            {t("navigation.settings")}
+  async function saveCharacter(input: CharacterInput) {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = view.name === "edit" ? await updateCharacter(view.id, input) : await createCharacter(input);
+      setSelected(saved);
+      await loadLibrary();
+      setView({ name: "detail", id: saved.id });
+    } catch (saveError) {
+      setError(errorMessage(saveError, t("errors.save")));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeCharacter() {
+    if (!selected) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteCharacter(selected.id);
+      setSelected(null);
+      await loadLibrary();
+      setView({ name: "library" });
+    } catch (deleteError) {
+      setError(errorMessage(deleteError, t("errors.delete")));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function showLibrary() {
+    setError(null);
+    setView({ name: "library" });
+  }
+
+  return (
+    <div className={`app-shell view-${view.name}`}>
+      <aside className="app-rail">
+        <button className="brand" type="button" onClick={showLibrary} aria-label={t("brand")}>
+          <span className="brand-icon"><FurfolioMark /></span>
+          <span className="brand-word">{t("brand")}</span>
+        </button>
+
+        <nav className="navigation" aria-label={t("navigation.label")}>
+          <button
+            className={`navigation-link${view.name === "library" ? " active" : ""}`}
+            type="button"
+            onClick={showLibrary}
+            aria-label={t("navigation.library")}
+          >
+            <LibraryIcon /><span>{t("navigation.library")}</span>
+          </button>
+          <button
+            className="navigation-link"
+            type="button"
+            disabled
+            title={t("comingSoon")}
+            aria-label={t("navigation.settings")}
+          >
+            <SettingsIcon /><span>{t("navigation.settings")}</span>
           </button>
         </nav>
 
-        <div className="toolbar">
+        <div className="rail-controls">
           <label className="language-control">
-            <span className="sr-only">{t("language.label")}</span>
-            <select
-              aria-label={t("language.label")}
-              value={i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en"}
-              onChange={(event) => changeLanguage(event.target.value as "en" | "zh-CN")}
-            >
+            <span className="control-label">{t("language.label")}</span>
+            <select aria-label={t("language.label")} value={i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en"} onChange={(event) => changeLanguage(event.target.value as "en" | "zh-CN")}>
               <option value="zh-CN">{t("language.chinese")}</option>
               <option value="en">{t("language.english")}</option>
             </select>
           </label>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={theme === "dark" ? t("theme.light") : t("theme.dark")}
-            onClick={changeTheme}
-          >
-            <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
+          <button className="theme-control" type="button" aria-label={theme === "dark" ? t("theme.light") : t("theme.dark")} onClick={changeTheme}>
+            <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><span>{theme === "dark" ? t("theme.lightShort") : t("theme.darkShort")}</span>
           </button>
+          <p className="local-status"><span />{t("status")}</p>
         </div>
-      </header>
+      </aside>
 
-      <main id="main" className="main-content">
-        <section className="empty-state" aria-labelledby="empty-title">
-          <div className="artwork" aria-hidden="true">
-            <div className="artwork-ring ring-one" />
-            <div className="artwork-ring ring-two" />
-            <div className="artwork-card artwork-card-back" />
-            <div className="artwork-card artwork-card-front">
-              <PawMark />
-            </div>
-            <span className="spark spark-one">✦</span>
-            <span className="spark spark-two">✦</span>
-          </div>
-
-          <p className="eyebrow">{t("empty.eyebrow")}</p>
-          <h1 id="empty-title">{t("empty.title")}</h1>
-          <p className="intro">{t("empty.description")}</p>
-
-          <div className="actions">
-            <button className="primary-button" type="button">
-              <span aria-hidden="true">＋</span>
-              {t("empty.create")}
-            </button>
-            <button className="secondary-button" type="button">
-              {t("empty.restore")}
-            </button>
-          </div>
-
-          <aside className="privacy-note">
-            <span className="privacy-icon" aria-hidden="true">⌂</span>
-            <span>
-              <strong>{t("privacy.title")}</strong>
-              <small>{t("privacy.description")}</small>
-            </span>
-          </aside>
-        </section>
-      </main>
-
-      <footer>{t("status")}</footer>
+      <div className="app-content">
+        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={error} onCreate={() => { setError(null); setView({ name: "create" }); }} onOpen={(id) => void openCharacter(id)} onRetry={() => void loadLibrary()} />}
+        {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={showLibrary} onSubmit={saveCharacter} />}
+        {view.name === "detail" && selected && <CharacterDetail character={selected} deleting={deleting} error={error} onBack={showLibrary} onEdit={() => setView({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
+        {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => setView({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-labelledby="cat-title cat-desc" role="img">
+  <title id="cat-title">沉静好奇、轻微侧头的年轻成年猫伙伴</title>
+  <desc id="cat-desc">原创日系 Kemono 三分之四胸像：短宽圆角楔头、短平吻、高颧、短而可见的颈与紧凑扭身。</desc>
+
+  <g id="rear-appendages" transform="rotate(-5 270 250)" stroke="#2D333B" stroke-width="8" stroke-linejoin="round">
+    <path fill="#465A70" d="M180 205C164 179 163 146 176 116C198 129 215 148 224 173Z"/>
+    <path fill="#2D333B" stroke="none" d="M181 178C175 160 177 143 181 130C192 140 200 154 204 169Z"/>
+  </g>
+
+  <g id="torso" stroke="#2D333B" stroke-width="9" stroke-linejoin="round">
+    <path fill="#667C94" d="M49 516C61 459 106 423 169 407C217 395 260 401 292 418C331 394 379 400 416 430C440 449 454 478 462 516Z"/>
+    <path id="structural-shadow" fill="#465A70" stroke="none" d="M292 418C331 394 379 400 416 430C440 449 454 478 462 516H278C294 483 299 449 292 418Z"/>
+  </g>
+
+  <g id="neck" stroke="#2D333B" stroke-width="9" stroke-linejoin="round">
+    <path fill="#667C94" d="M215 344C221 366 209 387 181 405C216 403 258 414 282 436C282 407 297 383 322 366L306 337Z"/>
+    <path fill="#465A70" stroke="none" d="M282 436C282 407 297 383 322 366L306 337L275 354C285 380 288 407 282 436Z"/>
+  </g>
+
+  <g id="head" transform="rotate(-5 270 250)" stroke="#2D333B" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#667C94" d="M153 248C155 213 174 185 205 168L219 137L251 161C280 151 312 154 338 168L369 145L366 198C382 217 388 240 383 263C381 276 374 287 362 295C366 300 368 306 367 312C359 320 348 324 335 323C321 340 298 350 271 354C242 357 216 349 197 335L178 339L186 322L166 313L184 301C163 287 151 268 153 248Z"/>
+    <path fill="#667C94" d="M301 165C318 142 341 127 367 121C370 148 366 175 354 198Z"/>
+    <path fill="#2D333B" stroke="none" d="M319 160C332 145 345 136 358 131C359 148 356 165 349 180Z"/>
+  </g>
+
+  <g id="light-structure" transform="rotate(-5 270 250)" fill="#EEE9DD" stroke="#2D333B" stroke-width="7" stroke-linejoin="round">
+    <path d="M303 294C319 286 337 289 350 298C359 304 365 309 367 312C359 320 348 324 335 323C321 340 299 349 274 353C287 338 294 321 295 306C296 301 299 297 303 294Z"/>
+    <path d="M197 335C216 349 242 357 271 354C267 377 271 409 282 436C257 414 216 403 181 405C204 387 211 363 197 335Z"/>
+  </g>
+
+  <g id="facial-shadow" transform="rotate(-5 270 250)" fill="#465A70">
+    <path d="M338 168C360 180 377 201 383 226C387 240 387 253 383 263C369 261 355 266 343 278C337 240 335 202 338 168Z"/>
+    <path d="M335 323C348 324 359 320 367 312C363 327 352 337 337 341C329 342 321 339 314 335Z"/>
+  </g>
+
+  <g id="fur-tufts" transform="rotate(-5 270 250)" fill="#667C94" stroke="#2D333B" stroke-width="8" stroke-linejoin="round">
+    <path d="M209 170L220 154L231 166L244 155L251 164"/>
+    <path d="M178 286L163 296L180 300L171 312L188 308"/>
+    <path d="M181 405L171 420L190 417L186 433L204 424"/>
+  </g>
+
+  <g id="eyes" transform="rotate(-5 270 250)" stroke="#2D333B" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#EEE9DD" stroke="none" d="M190 231C208 220 234 220 253 232C237 243 210 244 190 231Z"/>
+    <path fill="#B9853D" stroke-width="3" d="M212 225C225 224 234 232 233 242C223 245 212 243 205 237C205 231 208 227 212 225Z"/>
+    <path fill="#2D333B" stroke="none" d="M217 226C224 228 227 234 225 242C220 244 216 242 213 239C212 233 214 228 217 226Z"/>
+    <path fill="#FFF6E8" stroke="none" d="M210 228C214 226 219 228 219 231C217 234 214 235 210 232Z"/>
+    <path fill="#EEE9DD" stroke="none" d="M278 235C292 227 311 228 326 238C313 247 294 247 278 235Z"/>
+    <path fill="#B9853D" stroke-width="3" d="M294 232C304 231 311 238 309 246C301 248 293 246 288 241C288 236 291 233 294 232Z"/>
+    <path fill="#2D333B" stroke="none" d="M298 233C304 235 306 240 303 246C299 247 295 245 293 242C292 237 294 234 298 233Z"/>
+    <path fill="none" stroke-width="8" d="M188 229C207 217 234 217 255 231"/>
+    <path fill="none" stroke-width="7" d="M276 233C292 224 312 225 328 237"/>
+    <path fill="none" stroke-width="3" d="M197 241C208 245 222 245 234 241"/>
+    <path fill="none" stroke-width="3" d="M284 243C293 247 304 247 313 244"/>
+  </g>
+
+  <g id="muzzle-details" transform="rotate(-5 270 250)" fill="#2D333B" stroke="#2D333B" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="3" d="M352 304C358 303 364 307 367 312C364 316 360 318 355 316C352 313 351 309 352 304Z"/>
+    <path fill="none" stroke-width="4" d="M356 319C348 324 338 325 329 322C322 320 315 322 309 326"/>
+    <path fill="none" stroke-width="3" d="M295 292C302 288 309 288 316 291"/>
+  </g>
+</svg>
