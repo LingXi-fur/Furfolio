@@ -93,7 +93,7 @@ export function LibraryView({ characters, loading, error, onCreate, onOpen, onRe
       <header className="library-header">
         <div>
           <p className="eyebrow">{t("library.eyebrow")}</p>
-          <h1>{t("library.title")}</h1>
+          <h1>{t("library.titleLead")}<em>{t("library.titleEmphasis")}</em></h1>
         </div>
         <div className="library-count"><strong>{String(characters.length).padStart(2, "0")}</strong><span>{t("library.summary", { count: characters.length })}</span></div>
       </header>
@@ -113,7 +113,7 @@ export function LibraryView({ characters, loading, error, onCreate, onOpen, onRe
         <section className="character-grid" aria-label={t("library.characters")}>
           {filtered.map((character, index) => (
             <div className="card-entry" style={{ "--entry-index": index } as React.CSSProperties} key={character.id}>
-              <CharacterCard character={character} index={index + 1} onOpen={onOpen} />
+              <CharacterCard character={character} index={characters.findIndex((entry) => entry.id === character.id) + 1} onOpen={onOpen} />
             </div>
           ))}
         </section>

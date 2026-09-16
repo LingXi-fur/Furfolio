@@ -72,6 +72,21 @@ describe("App", () => {
     expect(document.querySelector(".glyph-ear")).not.toBeInTheDocument();
   });
 
+  it("renders character covers as plates without images", async () => {
+    data.listCharacters.mockResolvedValue([novaSummary]);
+    render(<App />);
+
+    await screen.findByRole("button", { name: /open nova/i });
+    const cover = document.querySelector(".character-cover") as HTMLElement | null;
+    expect(cover).not.toBeNull();
+    expect(cover).toHaveAttribute("aria-hidden", "true");
+    expect(cover?.style.getPropertyValue("--cover-primary")).toBe("#74518E");
+    expect(cover?.style.getPropertyValue("--cover-secondary")).toBe("#E6A66E");
+    expect(cover?.style.getPropertyValue("--cover-on-primary")).toBe("#F7F2E7");
+    expect(document.querySelector(".cover-index")?.textContent).toBe("01");
+    expect(document.querySelector("img")).not.toBeInTheDocument();
+  });
+
   it("gives navigation controls localized accessible names", async () => {
     const user = userEvent.setup();
     render(<App />);

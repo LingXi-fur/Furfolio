@@ -24,6 +24,7 @@ Its interface treats each character as a record—not as content for a dashboard
 - Create, browse, edit, and delete character records
 - Store name, species, pronouns, tags, signature colors, description, and private notes
 - Search by character name, species, or tag; press `/` to focus search
+- Navigate through a sidebar table of contents with archive plate numbering, page-turn view transitions, and theme cross-fades
 - Switch between English and Simplified Chinese
 - Follow system appearance or choose light/dark theme
 - Persist data in a local SQLite database through typed Tauri commands
@@ -127,6 +128,8 @@ src-tauri/src/
 ├── error.rs           Stable command errors
 ├── models.rs          Rust data contracts
 └── lib.rs             Runtime wiring
+
+design/                Original character-diagnostic SVG studies (not app assets)
 ```
 
 ## Roadmap

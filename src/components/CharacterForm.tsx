@@ -2,6 +2,7 @@ import { type CSSProperties, type FormEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Character, CharacterInput } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
+import { DEFAULT_PALETTE } from "./characterPalette";
 
 interface CharacterFormProps {
   character?: Character;
@@ -31,7 +32,7 @@ function initialValues(character?: Character): FormValues {
     description: character?.description ?? "",
     notes: character?.notes ?? "",
     tags: character?.tags.map((tag) => tag.name) ?? [],
-    colors: character?.colors.map((color) => color.hexValue) ?? ["#74518E", "#E6A66E"],
+    colors: character?.colors.map((color) => color.hexValue) ?? [...DEFAULT_PALETTE],
   };
 }
 

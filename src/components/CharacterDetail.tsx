@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Character } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DEFAULT_PALETTE, coverPalette } from "./characterPalette";
 
 interface CharacterDetailProps {
   character: Character;
+  plateIndex: number;
   deleting: boolean;
   error: string | null;
   onBack: () => void;
@@ -13,9 +15,11 @@ interface CharacterDetailProps {
   onDelete: () => Promise<void>;
 }
 
-export function CharacterDetail({ character, deleting, error, onBack, onEdit, onDelete }: CharacterDetailProps) {
-  const { t } = useTranslation();
+export function CharacterDetail({ character, plateIndex, deleting, error, onBack, onEdit, onDelete }: CharacterDetailProps) {
+  const { t, i18n } = useTranslation();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "short", day: "numeric" });
+  const palette = coverPalette(character.colors.length > 0 ? character.colors : [...DEFAULT_PALETTE]);
 
   return (
     <main className="detail-view view-enter">
@@ -27,9 +31,10 @@ export function CharacterDetail({ character, deleting, error, onBack, onEdit, on
         </div>
       </div>
 
-      <section className="detail-record">
+      <section className="detail-record" style={{ "--detail-primary": palette.primary } as CSSProperties}>
         <aside className="detail-cover-wrap">
-          <CharacterCover name={character.name} species={character.species} colors={character.colors} />
+          <CharacterCover name={character.name} species={character.species} colors={character.colors} index={plateIndex} />
+          <span className="collection-stamp" aria-hidden="true">EX LIBRIS<br />FURFOLIO · LOCAL</span>
           <span className="no-image-badge">{t("detail.noReferenceImage")}</span>
         </aside>
 
@@ -46,11 +51,17 @@ export function CharacterDetail({ character, deleting, error, onBack, onEdit, on
             <div className="palette-row" aria-label={t("detail.palette")}>
               {character.colors.map((color) => <span className="color-chip" key={color.id}><i style={{ background: color.hexValue }} />{color.hexValue}</span>)}
             </div>
+            <p className="detail-edition">
+              {t("detail.edition", {
+                created: dateFormatter.format(new Date(character.createdAt)),
+                revised: dateFormatter.format(new Date(character.updatedAt)),
+              })}
+            </p>
           </header>
 
           {error && !confirmingDelete && <p className="error-banner" role="alert">{error}</p>}
 
-          <article className="detail-section detail-description">
+          <article className={`detail-section detail-description${character.description ? " has-drop-cap" : ""}`}>
             <span className="panel-index">01</span>
             <div><h2>{t("fields.description")}</h2><p>{character.description || t("detail.emptyDescription")}</p></div>
           </article>

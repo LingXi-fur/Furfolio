@@ -1,62 +1,76 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-labelledby="fox-title fox-desc" role="img">
-  <title id="fox-title">温和认真、正在倾听的年轻成年狐狸伙伴</title>
-  <desc id="fox-desc">原创日系 Kemono 三分之四胸像：窄楔头、连续收尖的长吻、后掠颊线、较长颈与前倾肩。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="fox-cute-title fox-cute-desc">
+  <title id="fox-cute-title">狐狸伙伴 · 可爱版定稿 v2</title>
+  <desc id="fox-cute-desc">原创日系 Kemono 正面半身胸像：圆润大头、杏黄被毛、奶油色面罩与胸毛、深色耳尖、青绿色玻璃大眼、腮红与浅笑小虎牙。独立犬科狐骨架构图，非猫系换皮。</desc>
+  <defs>
+    <clipPath id="fox-body-clip">
+      <path d="M88 512 C92 446 126 398 184 376 C212 364 240 360 256 360 C272 360 300 364 328 376 C386 398 420 446 424 512 Z" />
+    </clipPath>
+  </defs>
 
-  <g id="rear-appendages" stroke="#3B2926" stroke-width="8" stroke-linejoin="round">
-    <path fill="#914331" d="M183 193C162 158 162 112 184 70C207 96 221 126 225 163Z"/>
-    <path fill="#3B2926" stroke="none" d="M181 162C174 137 177 111 185 91C198 111 207 133 209 155Z"/>
+  <!-- 颈（奶油色，连通面罩与胸毛） -->
+  <path d="M218 300 L218 392 L294 392 L294 300 Z" fill="#FBEFDD" stroke="#45291F" stroke-width="6" stroke-linejoin="round" />
+
+  <!-- 肩与半身 -->
+  <path d="M88 512 C92 446 126 398 184 376 C212 364 240 360 256 360 C272 360 300 364 328 376 C386 398 420 446 424 512 Z" fill="#E8935F" stroke="#45291F" stroke-width="6" stroke-linejoin="round" />
+
+  <!-- 身侧暗部（赛璐璐二分） -->
+  <g clip-path="url(#fox-body-clip)">
+    <path d="M94 512 C100 450 132 404 186 380 C158 414 136 458 130 512 Z" fill="#C9703F" />
+    <path d="M418 512 C412 450 380 404 326 380 C354 414 376 458 382 512 Z" fill="#C9703F" />
   </g>
 
-  <g id="torso" stroke="#3B2926" stroke-width="9" stroke-linejoin="round">
-    <path fill="#C65D3A" d="M54 516C63 454 105 414 169 395C218 380 283 381 346 399C405 416 444 456 461 516Z"/>
-    <path id="structural-shadow" fill="#914331" stroke="none" d="M300 390C357 400 415 430 444 475C452 488 458 502 461 516H287C306 478 311 431 300 390Z"/>
-  </g>
+  <!-- 奶油色胸毛围兜 -->
+  <path d="M226 352 C210 384 202 426 204 470 C205 492 209 503 214 512 L298 512 C303 503 307 492 308 470 C310 426 302 384 286 352 C264 342 248 342 226 352 Z" fill="#FBEFDD" stroke="#45291F" stroke-width="6" stroke-linejoin="round" />
+  <!-- 围兜受颏下阴影 -->
+  <path d="M230 356 C246 366 266 366 282 356 C274 349 265 346 256 346 C247 346 238 349 230 356 Z" fill="#E8D4B6" />
+  <!-- 围底线毛弧 -->
+  <path d="M220 396 C238 410 274 410 292 396" fill="none" stroke="#E8D4B6" stroke-width="6" stroke-linecap="round" />
+  <path d="M216 436 C238 452 274 452 296 436" fill="none" stroke="#E8D4B6" stroke-width="6" stroke-linecap="round" />
 
-  <g id="neck" stroke="#3B2926" stroke-width="9" stroke-linejoin="round">
-    <path fill="#C65D3A" d="M201 326C216 349 213 372 188 397C221 397 251 410 275 435C278 398 297 369 327 350L306 311Z"/>
-    <path fill="#914331" stroke="none" d="M275 435C278 398 297 369 327 350L306 311L271 335C281 368 282 402 275 435Z"/>
-  </g>
+  <g>
+    <!-- 耳：深色耳 + 橙色覆层留出耳尖 -->
+    <path d="M156 156 C132 122 126 66 146 34 C151 26 162 28 168 36 C196 70 222 106 236 136 Z" fill="#4F3226" stroke="#45291F" stroke-width="6" stroke-linejoin="round" />
+    <path d="M344 156 C368 122 374 66 354 34 C349 26 338 28 332 36 C304 70 278 106 264 136 Z" fill="#4F3226" stroke="#45291F" stroke-width="6" stroke-linejoin="round" />
+    <path d="M134 86 L186 72 C200 88 220 110 236 136 L156 156 C144 138 133 116 134 86 Z" fill="#E8935F" />
+    <path d="M378 86 L326 72 C312 88 292 110 276 136 L356 156 C368 138 379 116 378 86 Z" fill="#E8935F" />
+    <path d="M176 122 C170 108 169 94 172 80 C186 87 202 100 212 112 Z" fill="#FBEFDD" />
+    <path d="M336 122 C342 108 343 94 340 80 C326 87 310 100 300 112 Z" fill="#FBEFDD" />
 
-  <g id="head" stroke="#3B2926" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <path fill="#C65D3A" d="M151 235C154 197 177 168 211 153L230 103L267 145C298 140 329 148 350 168C371 188 379 216 374 244C391 252 406 265 419 282L428 294L416 308C397 329 370 339 337 337C320 356 296 368 267 371C238 373 212 365 192 349L166 354L176 333L151 322L174 304C157 284 148 260 151 235Z"/>
-    <path fill="#C65D3A" d="M260 148C281 108 313 81 354 69C359 108 350 145 328 177Z"/>
-    <path fill="#3B2926" stroke="none" d="M280 143C296 118 317 101 341 91C342 116 335 141 320 164Z"/>
-  </g>
+    <!-- 头 -->
+    <ellipse cx="256" cy="230" rx="118" ry="106" fill="#E8935F" stroke="#45291F" stroke-width="6" />
 
-  <g id="light-structure" fill="#F2DFC8" stroke="#3B2926" stroke-width="7" stroke-linejoin="round">
-    <path d="M278 278C303 268 331 268 356 275C382 283 405 286 428 294L416 308C397 329 370 339 337 337C321 355 297 367 267 371C277 344 282 310 278 278Z"/>
-    <path d="M192 349C212 365 238 373 267 371C257 391 260 414 275 435C251 410 221 397 188 397C209 378 211 361 192 349Z"/>
-  </g>
+    <!-- 奶油色面罩（吻部与两颊） -->
+    <path d="M256 262 C222 262 196 274 186 294 C178 312 188 332 212 342 C234 350 278 350 300 342 C324 332 334 312 326 294 C316 274 290 262 256 262 Z" fill="#FBEFDD" />
 
-  <g id="facial-shadow" fill="#914331">
-    <path d="M328 177C352 192 372 216 374 244C355 242 338 248 322 260C316 228 318 201 328 177Z"/>
-    <path d="M337 337C370 339 397 329 416 308C406 331 386 345 359 350C347 352 335 348 324 341Z"/>
-  </g>
+    <!-- 眉 -->
+    <path d="M174 174 C184 166 204 166 214 171" fill="none" stroke="#45291F" stroke-width="5" stroke-linecap="round" />
+    <path d="M338 174 C328 166 308 166 298 171" fill="none" stroke="#45291F" stroke-width="5" stroke-linecap="round" />
 
-  <g id="fur-tufts" fill="#C65D3A" stroke="#3B2926" stroke-width="8" stroke-linejoin="round">
-    <path d="M207 155L216 132L230 150L247 130L255 148"/>
-    <path d="M170 270L144 282L168 292L151 308L176 307"/>
-    <path d="M188 397L169 419L194 416L186 441L210 428"/>
-  </g>
+    <!-- 左眼 -->
+    <ellipse cx="194" cy="226" rx="25" ry="29" fill="#FFF9F0" stroke="#45291F" stroke-width="5" />
+    <circle cx="194" cy="229" r="19" fill="#7FA05C" />
+    <circle cx="194" cy="229" r="10" fill="#2C241E" />
+    <circle cx="187" cy="221" r="6.5" fill="#FFFFFF" />
+    <circle cx="200" cy="237" r="3.5" fill="#FFFFFF" opacity="0.85" />
+    <path d="M172 216 C180 200 208 200 216 216" fill="none" stroke="#45291F" stroke-width="7" stroke-linecap="round" />
 
-  <g id="eyes" stroke="#3B2926" stroke-linecap="round" stroke-linejoin="round">
-    <path fill="#F2DFC8" stroke="none" d="M187 228C207 215 238 214 262 226C243 239 211 241 187 228Z"/>
-    <path fill="#4F8077" stroke-width="3" d="M214 216C229 215 239 224 239 236C228 240 216 238 208 231C208 224 210 219 214 216Z"/>
-    <path fill="#3B2926" stroke="none" d="M220 216C229 218 233 225 231 236C224 238 218 236 214 231C213 224 215 219 220 216Z"/>
-    <path fill="#FFF6E8" stroke="none" d="M215 220C219 217 224 219 224 222C222 225 218 226 215 223Z"/>
-    <path fill="#F2DFC8" stroke="none" d="M282 226C299 217 321 218 338 230C323 240 301 240 282 226Z"/>
-    <path fill="#4F8077" stroke-width="3" d="M304 219C316 219 323 227 321 237C312 240 302 237 296 231C296 225 299 221 304 219Z"/>
-    <path fill="#3B2926" stroke="none" d="M309 220C317 222 319 228 316 237C311 238 306 235 303 232C303 226 305 222 309 220Z"/>
-    <path fill="none" stroke-width="8" d="M184 226C207 210 239 210 264 224"/>
-    <path fill="none" stroke-width="7" d="M279 224C298 214 322 215 340 229"/>
-    <path fill="none" stroke-width="3" d="M192 238C206 243 222 243 237 238"/>
-    <path fill="none" stroke-width="3" d="M289 236C300 240 313 240 324 237"/>
-  </g>
+    <!-- 右眼 -->
+    <ellipse cx="318" cy="226" rx="25" ry="29" fill="#FFF9F0" stroke="#45291F" stroke-width="5" />
+    <circle cx="318" cy="229" r="19" fill="#7FA05C" />
+    <circle cx="318" cy="229" r="10" fill="#2C241E" />
+    <circle cx="311" cy="221" r="6.5" fill="#FFFFFF" />
+    <circle cx="324" cy="237" r="3.5" fill="#FFFFFF" opacity="0.85" />
+    <path d="M296 216 C304 200 332 200 340 216" fill="none" stroke="#45291F" stroke-width="7" stroke-linecap="round" />
 
-  <g id="muzzle-details" fill="#3B2926" stroke="#3B2926" stroke-linecap="round" stroke-linejoin="round">
-    <path stroke-width="3" d="M408 282C417 283 424 287 428 294C424 301 417 304 408 303C400 299 398 291 401 286Z"/>
-    <path fill="none" stroke-width="5" d="M406 305C391 313 374 315 358 311C349 309 341 312 334 318"/>
-    <path fill="none" stroke-width="4" d="M358 311C357 317 354 322 348 325"/>
-    <path fill="none" stroke-width="4" d="M279 274C290 268 302 268 313 272"/>
+    <!-- 腮红 -->
+    <ellipse cx="168" cy="274" rx="14" ry="9" fill="#F2A488" opacity="0.85" />
+    <ellipse cx="344" cy="274" rx="14" ry="9" fill="#F2A488" opacity="0.85" />
+
+    <!-- 鼻 -->
+    <path d="M246 268 C246 261 266 261 266 268 C266 276 258 283 256 283 C254 283 246 276 246 268 Z" fill="#45291F" stroke="#45291F" stroke-width="4" stroke-linejoin="round" />
+
+    <!-- 浅笑 + 小虎牙 -->
+    <path d="M256 283 L256 292 M256 292 C251 299 242 300 237 295 M256 292 C261 299 270 300 275 295" fill="none" stroke="#45291F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M269 298 L279 296 L274 310 Z" fill="#FFFFFF" stroke="#45291F" stroke-width="3" stroke-linejoin="round" />
   </g>
 </svg>

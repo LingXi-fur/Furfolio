@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./App.css";
@@ -50,6 +51,33 @@ function errorMessage(error: unknown, fallback: string) {
     return String((error as CommandError).message);
   }
   return fallback;
+}
+
+type ViewTransitionLike = { finished: Promise<void> };
+type ViewTransitionDocument = Document & { startViewTransition?: (callback: () => void) => ViewTransitionLike };
+
+function reducedMotionActive() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function startViewTurn(update: () => void) {
+  const doc = document as ViewTransitionDocument;
+  if (!doc.startViewTransition || reducedMotionActive()) {
+    update();
+    return;
+  }
+  doc.startViewTransition(() => { flushSync(update); });
+}
+
+function crossFade(update: () => void) {
+  const doc = document as ViewTransitionDocument;
+  if (!doc.startViewTransition || reducedMotionActive()) {
+    update();
+    return;
+  }
+  document.documentElement.dataset.themeTurn = "";
+  const transition = doc.startViewTransition(() => { flushSync(update); });
+  void transition.finished.finally(() => { delete document.documentElement.dataset.themeTurn; });
 }
 
 function App() {
@@ -111,8 +139,8 @@ function App() {
 
   function changeTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
     localStorage.setItem("furfolio-theme", nextTheme);
+    crossFade(() => { setTheme(nextTheme); });
   }
 
   function changeLanguage(language: "en" | "zh-CN") {
@@ -124,7 +152,7 @@ function App() {
     setError(null);
     try {
       setSelected(await getCharacter(id));
-      setView({ name: "detail", id });
+      startViewTurn(() => { setView({ name: "detail", id }); });
     } catch (loadError) {
       setError(errorMessage(loadError, t("errors.storage")));
     }
@@ -137,7 +165,7 @@ function App() {
       const saved = view.name === "edit" ? await updateCharacter(view.id, input) : await createCharacter(input);
       setSelected(saved);
       await loadLibrary();
-      setView({ name: "detail", id: saved.id });
+      startViewTurn(() => { setView({ name: "detail", id: saved.id }); });
     } catch (saveError) {
       setError(errorMessage(saveError, t("errors.save")));
     } finally {
@@ -153,7 +181,7 @@ function App() {
       await deleteCharacter(selected.id);
       setSelected(null);
       await loadLibrary();
-      setView({ name: "library" });
+      startViewTurn(() => { setView({ name: "library" }); });
     } catch (deleteError) {
       setError(errorMessage(deleteError, t("errors.delete")));
     } finally {
@@ -163,7 +191,7 @@ function App() {
 
   function showLibrary() {
     setError(null);
-    setView({ name: "library" });
+    startViewTurn(() => { setView({ name: "library" }); });
   }
 
   return (
@@ -194,6 +222,31 @@ function App() {
           </button>
         </nav>
 
+        {!loading && characters.length > 0 && (
+          <nav className="rail-toc" aria-label={t("library.indexLabel")}>
+            <p className="toc-heading">{t("library.indexTitle")}<span className="toc-total">· {String(characters.length).padStart(2, "0")}</span></p>
+            {characters.slice(0, 8).map((character, index) => (
+              <button
+                key={character.id}
+                type="button"
+                className="toc-entry"
+                aria-current={"id" in view && view.id === character.id ? "true" : undefined}
+                aria-label={t("library.indexEntry", { name: character.name })}
+                onClick={() => void openCharacter(character.id)}
+              >
+                <span className="toc-entry-number">{String(index + 1).padStart(2, "0")}</span>
+                <span className="toc-entry-name">{character.name}</span>
+                <span className="toc-entry-dots" aria-hidden="true" />
+                <span className="toc-entry-plate">{t("library.plateShort", { number: index + 1 })}</span>
+              </button>
+            ))}
+            {characters.length > 8 && <p className="toc-overflow">+{characters.length - 8}</p>}
+          </nav>
+        )}
+        {!loading && characters.length === 0 && (
+          <p className="toc-awaiting">{t("library.indexAwaiting")}</p>
+        )}
+
         <div className="rail-controls">
           <label className="language-control">
             <span className="control-label">{t("language.label")}</span>
@@ -210,10 +263,10 @@ function App() {
       </aside>
 
       <div className="app-content">
-        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={error} onCreate={() => { setError(null); setView({ name: "create" }); }} onOpen={(id) => void openCharacter(id)} onRetry={() => void loadLibrary()} />}
+        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={error} onCreate={() => { setError(null); startViewTurn(() => { setView({ name: "create" }); }); }} onOpen={(id) => void openCharacter(id)} onRetry={() => void loadLibrary()} />}
         {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={showLibrary} onSubmit={saveCharacter} />}
-        {view.name === "detail" && selected && <CharacterDetail character={selected} deleting={deleting} error={error} onBack={showLibrary} onEdit={() => setView({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
-        {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => setView({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
+        {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} error={error} onBack={showLibrary} onEdit={() => startViewTurn(() => { setView({ name: "edit", id: selected.id }); })} onDelete={removeCharacter} />}
+        {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => startViewTurn(() => { setView({ name: "detail", id: selected.id }); })} onSubmit={saveCharacter} />}
       </div>
     </div>
   );
