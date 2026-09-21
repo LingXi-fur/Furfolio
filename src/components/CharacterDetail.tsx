@@ -1,4 +1,4 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Character } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
@@ -18,16 +18,26 @@ interface CharacterDetailProps {
 export function CharacterDetail({ character, plateIndex, deleting, error, onBack, onEdit, onDelete }: CharacterDetailProps) {
   const { t, i18n } = useTranslation();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const dateFormatter = new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "short", day: "numeric" });
+  const formatDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? t("detail.unknownDate") : dateFormatter.format(date);
+  };
   const palette = coverPalette(character.colors.length > 0 ? character.colors : [...DEFAULT_PALETTE]);
+
+  useEffect(() => {
+    backButtonRef.current?.focus();
+  }, [character.id]);
 
   return (
     <main className="detail-view view-enter">
       <div className="detail-toolbar">
-        <button className="back-button" type="button" onClick={onBack}>← {t("actions.backToLibrary")}</button>
+        <button ref={backButtonRef} className="back-button" type="button" onClick={onBack}>← {t("actions.backToLibrary")}</button>
         <div className="detail-actions">
           <button className="secondary-button" type="button" onClick={onEdit}>{t("actions.edit")}</button>
-          <button className="danger-link" type="button" onClick={() => setConfirmingDelete(true)}>{t("actions.delete")}</button>
+          <button ref={deleteButtonRef} className="danger-link" type="button" onClick={() => setConfirmingDelete(true)}>{t("actions.delete")}</button>
         </div>
       </div>
 
@@ -53,8 +63,8 @@ export function CharacterDetail({ character, plateIndex, deleting, error, onBack
             </div>
             <p className="detail-edition">
               {t("detail.edition", {
-                created: dateFormatter.format(new Date(character.createdAt)),
-                revised: dateFormatter.format(new Date(character.updatedAt)),
+                created: formatDate(character.createdAt),
+                revised: formatDate(character.updatedAt),
               })}
             </p>
           </header>
@@ -82,7 +92,10 @@ export function CharacterDetail({ character, plateIndex, deleting, error, onBack
         description={t("detail.deleteConfirmation", { name: character.name })}
         confirming={deleting}
         error={error}
-        onCancel={() => setConfirmingDelete(false)}
+        onCancel={() => {
+          setConfirmingDelete(false);
+          requestAnimationFrame(() => deleteButtonRef.current?.focus());
+        }}
         onConfirm={() => void onDelete()}
       />
     </main>

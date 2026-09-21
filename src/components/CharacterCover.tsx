@@ -1,4 +1,4 @@
-import { type CSSProperties } from "react";
+import { createElement, type CSSProperties } from "react";
 import type { CharacterColor } from "../data/characters";
 import { coverPalette } from "./characterPalette";
 
@@ -9,13 +9,14 @@ interface CharacterCoverProps {
   index?: number;
   registerLabel?: string;
   compact?: boolean;
+  as?: "div" | "span";
 }
 
 function getInitial(name: string) {
   return Array.from(name.trim())[0]?.toLocaleUpperCase() ?? "?";
 }
 
-export function CharacterCover({ name, colors, species, index, registerLabel, compact = false }: CharacterCoverProps) {
+export function CharacterCover({ name, colors, species, index, registerLabel, compact = false, as = "div" }: CharacterCoverProps) {
   const palette = coverPalette(colors);
   const recordNumber = index === undefined ? null : String(index).padStart(2, "0");
   const style = {
@@ -24,8 +25,14 @@ export function CharacterCover({ name, colors, species, index, registerLabel, co
     "--cover-on-primary": palette.onPrimary,
   } as CSSProperties;
 
-  return (
-    <div className={`character-cover${compact ? " compact" : ""}`} style={style} aria-hidden="true">
+  return createElement(
+    as,
+    {
+      className: `character-cover${compact ? " compact" : ""}`,
+      style,
+      "aria-hidden": "true",
+    },
+    <>
       <span className="cover-register">{registerLabel ?? (recordNumber ? `PLATE / FF-${recordNumber}` : "FURFOLIO / PLATE")}</span>
       <span className="cover-index">{recordNumber ?? "OC"}</span>
       <span className="cover-band cover-band-primary" />
@@ -45,6 +52,6 @@ export function CharacterCover({ name, colors, species, index, registerLabel, co
         <strong>{name}</strong>
         <span className="cover-swatches"><i /><i /></span>
       </span>
-    </div>
+    </>
   );
 }

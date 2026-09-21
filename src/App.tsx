@@ -1,5 +1,5 @@
 import { flushSync } from "react-dom";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./App.css";
 import { CharacterDetail } from "./components/CharacterDetail";
@@ -19,6 +19,8 @@ import {
 
 type Theme = "light" | "dark";
 type View = { name: "library" } | { name: "create" } | { name: "detail"; id: string } | { name: "edit"; id: string };
+type CharacterFocusOrigin = "library" | "contents";
+type LibraryFocusTarget = "create" | { characterId: string; origin: CharacterFocusOrigin } | null;
 
 function getInitialTheme(): Theme {
   const savedTheme = localStorage.getItem("furfolio-theme");
@@ -53,8 +55,25 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function toSummary(character: Character): CharacterSummary {
+  const { id, name, avatarAssetId, species, pronouns, tags, colors, updatedAt } = character;
+  return { id, name, avatarAssetId, species, pronouns, tags, colors, updatedAt };
+}
+
+function upsertSummary(characters: CharacterSummary[], character: Character) {
+  const summary = toSummary(character);
+  return [...characters.filter((entry) => entry.id !== summary.id), summary].sort((left, right) => {
+    const nameOrder = left.name.toLocaleLowerCase().localeCompare(right.name.toLocaleLowerCase());
+    return nameOrder || left.id.localeCompare(right.id);
+  });
+}
+
 type ViewTransitionLike = { finished: Promise<void> };
 type ViewTransitionDocument = Document & { startViewTransition?: (callback: () => void) => ViewTransitionLike };
+
+function settleViewTransition(transition: ViewTransitionLike) {
+  void transition.finished.catch(() => undefined);
+}
 
 function reducedMotionActive() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -66,7 +85,7 @@ function startViewTurn(update: () => void) {
     update();
     return;
   }
-  doc.startViewTransition(() => { flushSync(update); });
+  settleViewTransition(doc.startViewTransition(() => { flushSync(update); }));
 }
 
 function crossFade(update: () => void) {
@@ -77,7 +96,10 @@ function crossFade(update: () => void) {
   }
   document.documentElement.dataset.themeTurn = "";
   const transition = doc.startViewTransition(() => { flushSync(update); });
-  void transition.finished.finally(() => { delete document.documentElement.dataset.themeTurn; });
+  void transition.finished.then(
+    () => { delete document.documentElement.dataset.themeTurn; },
+    () => { delete document.documentElement.dataset.themeTurn; }
+  );
 }
 
 function App() {
@@ -89,34 +111,50 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [openingCharacterId, setOpeningCharacterId] = useState<string | null>(null);
+  const [libraryFocusTarget, setLibraryFocusTarget] = useState<LibraryFocusTarget>(null);
+  const openRequestRef = useRef(0);
+  const saveRequestRef = useRef(0);
+  const libraryRequestRef = useRef(0);
+
+  const cancelSaveRequest = useCallback(() => {
+    saveRequestRef.current += 1;
+    setSaving(false);
+  }, []);
 
   const loadLibrary = useCallback(async () => {
+    const requestId = ++libraryRequestRef.current;
     setLoading(true);
-    setError(null);
+    setLibraryError(null);
     try {
-      setCharacters(await listCharacters());
+      const loadedCharacters = await listCharacters();
+      if (requestId === libraryRequestRef.current) setCharacters(loadedCharacters);
     } catch (loadError) {
-      setError(errorMessage(loadError, t("errors.storage")));
+      if (requestId === libraryRequestRef.current) setLibraryError(errorMessage(loadError, i18n.t("errors.storage")));
     } finally {
-      setLoading(false);
+      if (requestId === libraryRequestRef.current) setLoading(false);
     }
-  }, [t]);
+  }, [i18n]);
 
   useEffect(() => {
     let active = true;
+    const requestId = ++libraryRequestRef.current;
     listCharacters()
       .then((loadedCharacters) => {
-        if (active) setCharacters(loadedCharacters);
+        if (active && requestId === libraryRequestRef.current) setCharacters(loadedCharacters);
       })
       .catch((loadError: unknown) => {
-        if (active) setError(errorMessage(loadError, t("errors.storage")));
+        if (active && requestId === libraryRequestRef.current) setLibraryError(errorMessage(loadError, i18n.t("errors.storage")));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && requestId === libraryRequestRef.current) setLoading(false);
       });
     return () => { active = false; };
-  }, [t]);
+  }, [i18n]);
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   useEffect(() => {
     const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -130,12 +168,26 @@ function App() {
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || view.name === "library" || document.querySelector("dialog[open]")) return;
-      if (view.name === "edit") setView({ name: "detail", id: view.id });
-      else setView({ name: "library" });
+      openRequestRef.current += 1;
+      cancelSaveRequest();
+      setOpeningCharacterId(null);
+      setError(null);
+      startViewTurn(() => {
+        if (view.name === "edit") {
+          setView({ name: "detail", id: view.id });
+        } else {
+          setLibraryFocusTarget(
+            view.name === "create"
+              ? "create"
+              : libraryFocusTarget ?? { characterId: view.id, origin: "library" }
+          );
+          setView({ name: "library" });
+        }
+      });
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [view]);
+  }, [cancelSaveRequest, libraryFocusTarget, view]);
 
   function changeTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
@@ -148,40 +200,80 @@ function App() {
     localStorage.setItem("furfolio-language", language);
   }
 
-  async function openCharacter(id: string) {
+  function cancelOpenRequest() {
+    openRequestRef.current += 1;
+    setOpeningCharacterId(null);
+  }
+
+  function navigate(nextView: View) {
+    cancelOpenRequest();
+    cancelSaveRequest();
+    setError(null);
+    startViewTurn(() => { setView(nextView); });
+  }
+
+  async function openCharacter(id: string, origin: CharacterFocusOrigin = "library") {
+    if (
+      openingCharacterId === id ||
+      ("id" in view && view.id === id && selected?.id === id)
+    ) return;
+
+    const requestId = ++openRequestRef.current;
+    setOpeningCharacterId(id);
+    setLibraryNotice(null);
     setError(null);
     try {
-      setSelected(await getCharacter(id));
-      startViewTurn(() => { setView({ name: "detail", id }); });
+      const character = await getCharacter(id);
+      if (requestId !== openRequestRef.current) return;
+      setOpeningCharacterId(null);
+      setSelected(character);
+      startViewTurn(() => {
+        setLibraryFocusTarget({ characterId: id, origin });
+        setView({ name: "detail", id });
+      });
     } catch (loadError) {
-      setError(errorMessage(loadError, t("errors.storage")));
+      if (requestId !== openRequestRef.current) return;
+      setOpeningCharacterId(null);
+      const message = errorMessage(loadError, t("errors.storage"));
+      if (view.name === "library") setLibraryNotice(message);
+      else setError(message);
     }
   }
 
   async function saveCharacter(input: CharacterInput) {
+    cancelOpenRequest();
+    const requestId = ++saveRequestRef.current;
     setSaving(true);
     setError(null);
     try {
       const saved = view.name === "edit" ? await updateCharacter(view.id, input) : await createCharacter(input);
+      setCharacters((current) => upsertSummary(current, saved));
+      if (requestId !== saveRequestRef.current) return;
       setSelected(saved);
       await loadLibrary();
+      if (requestId !== saveRequestRef.current) return;
       startViewTurn(() => { setView({ name: "detail", id: saved.id }); });
     } catch (saveError) {
-      setError(errorMessage(saveError, t("errors.save")));
+      if (requestId === saveRequestRef.current) setError(errorMessage(saveError, t("errors.save")));
     } finally {
-      setSaving(false);
+      if (requestId === saveRequestRef.current) setSaving(false);
     }
   }
 
   async function removeCharacter() {
     if (!selected) return;
+    cancelOpenRequest();
+    cancelSaveRequest();
     setDeleting(true);
     setError(null);
     try {
       await deleteCharacter(selected.id);
-      setSelected(null);
+      startViewTurn(() => {
+        setSelected(null);
+        setLibraryFocusTarget("create");
+        setView({ name: "library" });
+      });
       await loadLibrary();
-      startViewTurn(() => { setView({ name: "library" }); });
     } catch (deleteError) {
       setError(errorMessage(deleteError, t("errors.delete")));
     } finally {
@@ -189,15 +281,20 @@ function App() {
     }
   }
 
-  function showLibrary() {
-    setError(null);
-    startViewTurn(() => { setView({ name: "library" }); });
+  function showLibrary(focusTarget: LibraryFocusTarget = null) {
+    setLibraryNotice(null);
+    cancelOpenRequest();
+    cancelSaveRequest();
+    startViewTurn(() => {
+      setLibraryFocusTarget(focusTarget);
+      setView({ name: "library" });
+    });
   }
 
   return (
     <div className={`app-shell view-${view.name}`}>
       <aside className="app-rail">
-        <button className="brand" type="button" onClick={showLibrary} aria-label={t("brand")}>
+        <button className="brand" type="button" onClick={() => showLibrary()} aria-label={t("brand")}>
           <span className="brand-icon"><FurfolioMark /></span>
           <span className="brand-word">{t("brand")}</span>
         </button>
@@ -206,7 +303,7 @@ function App() {
           <button
             className={`navigation-link${view.name === "library" ? " active" : ""}`}
             type="button"
-            onClick={showLibrary}
+            onClick={() => showLibrary()}
             aria-label={t("navigation.library")}
           >
             <LibraryIcon /><span>{t("navigation.library")}</span>
@@ -225,21 +322,32 @@ function App() {
         {!loading && characters.length > 0 && (
           <nav className="rail-toc" aria-label={t("library.indexLabel")}>
             <p className="toc-heading">{t("library.indexTitle")}<span className="toc-total">· {String(characters.length).padStart(2, "0")}</span></p>
-            {characters.slice(0, 8).map((character, index) => (
-              <button
-                key={character.id}
-                type="button"
-                className="toc-entry"
-                aria-current={"id" in view && view.id === character.id ? "true" : undefined}
-                aria-label={t("library.indexEntry", { name: character.name })}
-                onClick={() => void openCharacter(character.id)}
-              >
-                <span className="toc-entry-number">{String(index + 1).padStart(2, "0")}</span>
-                <span className="toc-entry-name">{character.name}</span>
-                <span className="toc-entry-dots" aria-hidden="true" />
-                <span className="toc-entry-plate">{t("library.plateShort", { number: index + 1 })}</span>
-              </button>
-            ))}
+            {characters.slice(0, 8).map((character, index) => {
+              const plateNumber = String(index + 1).padStart(2, "0");
+
+              return (
+                <button
+                  key={character.id}
+                  type="button"
+                  className="toc-entry"
+                  aria-current={"id" in view && view.id === character.id ? "true" : undefined}
+                  aria-busy={openingCharacterId === character.id || undefined}
+                  aria-disabled={openingCharacterId === character.id || undefined}
+                  disabled={"id" in view && view.id === character.id}
+                  aria-label={t("library.indexEntry", {
+                    name: character.name,
+                    record: t("library.recordNumber", { number: plateNumber }),
+                  })}
+                  data-character-id={character.id}
+                  onClick={() => void openCharacter(character.id, "contents")}
+                >
+                  <span className="toc-entry-number">{plateNumber}</span>
+                  <span className="toc-entry-name">{character.name}</span>
+                  <span className="toc-entry-dots" aria-hidden="true" />
+                  <span className="toc-entry-plate">{openingCharacterId === character.id ? "…" : t("library.plateShort", { number: plateNumber })}</span>
+                </button>
+              );
+            })}
             {characters.length > 8 && <p className="toc-overflow">+{characters.length - 8}</p>}
           </nav>
         )}
@@ -263,10 +371,10 @@ function App() {
       </aside>
 
       <div className="app-content">
-        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={error} onCreate={() => { setError(null); startViewTurn(() => { setView({ name: "create" }); }); }} onOpen={(id) => void openCharacter(id)} onRetry={() => void loadLibrary()} />}
-        {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={showLibrary} onSubmit={saveCharacter} />}
-        {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} error={error} onBack={showLibrary} onEdit={() => startViewTurn(() => { setView({ name: "edit", id: selected.id }); })} onDelete={removeCharacter} />}
-        {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => startViewTurn(() => { setView({ name: "detail", id: selected.id }); })} onSubmit={saveCharacter} />}
+        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={libraryError} notice={libraryNotice} openingCharacterId={openingCharacterId} query={libraryQuery} returnFocusTarget={libraryFocusTarget} onReturnFocus={() => setLibraryFocusTarget(null)} onQueryChange={setLibraryQuery} onCreate={() => { setError(null); setLibraryNotice(null); navigate({ name: "create" }); }} onOpen={(id) => void openCharacter(id, "library")} onRetry={() => void loadLibrary()} onDismissNotice={() => setLibraryNotice(null)} />}
+        {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={() => showLibrary("create")} onSubmit={saveCharacter} />}
+        {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} error={error} onBack={() => showLibrary(libraryFocusTarget ?? { characterId: selected.id, origin: "library" })} onEdit={() => navigate({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
+        {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => navigate({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
       </div>
     </div>
   );

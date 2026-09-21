@@ -41,6 +41,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
   const [values, setValues] = useState(() => initialValues(character));
   const [nameError, setNameError] = useState(false);
   const [tagText, setTagText] = useState(values.tags.join(", "));
+  const [tagsEdited, setTagsEdited] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionName>("identity");
   const nameRef = useRef<HTMLInputElement>(null);
   const identityRef = useRef<HTMLFieldSetElement>(null);
@@ -49,7 +50,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
 
   const filledFields = [values.name, values.species, values.pronouns, values.description, values.notes, tagText]
     .filter((value) => value.trim()).length + values.colors.filter(Boolean).length;
-  const completion = Math.round((filledFields / 8) * 100);
+  const completion = Math.min(100, Math.round((filledFields / 8) * 100));
   const completedSteps = Math.ceil((completion / 100) * 4);
   const previewStyle = {
     "--preview-primary": values.colors[0],
@@ -84,7 +85,9 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
       nameRef.current?.focus();
       return;
     }
-    const tags = tagText.split(",").map((tag) => tag.trim()).filter(Boolean);
+    const tags = tagsEdited
+      ? tagText.split(",").map((tag) => tag.trim()).filter(Boolean)
+      : values.tags;
     void onSubmit({ ...values, tags });
   }
 
@@ -147,8 +150,8 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
             <div className="field-grid">
               <label className="field full-field">
                 <span>{t("fields.name")} *</span>
-                <input ref={nameRef} autoFocus value={values.name} onChange={(event) => updateText("name", event.target.value)} aria-invalid={nameError} />
-                {nameError && <small className="field-error">{t("errors.nameRequired")}</small>}
+                <input ref={nameRef} autoFocus value={values.name} onChange={(event) => updateText("name", event.target.value)} aria-invalid={nameError} aria-describedby={nameError ? "character-name-error" : undefined} />
+                {nameError && <small id="character-name-error" className="field-error">{t("errors.nameRequired")}</small>}
               </label>
               <label className="field">
                 <span>{t("fields.species")}</span>
@@ -176,7 +179,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
             </label>
             <label className="field">
               <span>{t("fields.tags")}</span>
-              <input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder={t("form.tagsPlaceholder")} />
+              <input value={tagText} onChange={(event) => { setTagText(event.target.value); setTagsEdited(true); }} placeholder={t("form.tagsPlaceholder")} />
               <small>{t("form.tagsHint")}</small>
             </label>
           </fieldset>
