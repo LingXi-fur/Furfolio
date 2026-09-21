@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="cat-cute-title cat-cute-desc">
+  <title id="cat-cute-title">猫伙伴 · 可爱版定稿 v2</title>
+  <desc id="cat-cute-desc">原创日系 Kemono 正面半身胸像：圆润大头、琥珀色玻璃大眼、腮红、粉色内耳与奶油色胸毛，淡紫灰被毛，温和微笑。独立猫科骨架，非狗系换皮。</desc>
+  <defs>
+    <clipPath id="cat-body-clip">
+      <path d="M92 512 C96 448 128 400 184 378 C212 366 240 362 256 362 C272 362 300 366 328 378 C384 400 416 448 420 512 Z" />
+    </clipPath>
+  </defs>
+
+  <!-- 颈（底端被身体覆盖） -->
+  <path d="M212 300 L212 396 L300 396 L300 300 Z" fill="#C7CBDF" stroke="#3A3448" stroke-width="6" stroke-linejoin="round" />
+
+  <!-- 肩与半身 -->
+  <path d="M92 512 C96 448 128 400 184 378 C212 366 240 362 256 362 C272 362 300 366 328 378 C384 400 416 448 420 512 Z" fill="#C7CBDF" stroke="#3A3448" stroke-width="6" stroke-linejoin="round" />
+
+  <!-- 身侧暗部（赛璐璐二分） -->
+  <g clip-path="url(#cat-body-clip)">
+    <path d="M96 512 C102 452 132 406 186 382 C160 414 138 458 132 512 Z" fill="#ADB3CF" />
+    <path d="M416 512 C410 452 380 406 326 382 C352 414 374 458 380 512 Z" fill="#ADB3CF" />
+  </g>
+
+  <!-- 奶油色胸毛围兜 -->
+  <path d="M232 354 C218 384 210 424 212 470 C213 492 217 503 222 512 L290 512 C295 503 299 492 300 470 C302 424 294 384 280 354 C264 345 248 345 232 354 Z" fill="#F7F2E7" stroke="#3A3448" stroke-width="6" stroke-linejoin="round" />
+  <!-- 围兜受颏下阴影 -->
+  <path d="M234 356 C248 366 264 366 278 356 C272 350 264 347 256 347 C248 347 240 350 234 356 Z" fill="#E3D9C3" />
+
+  <g>
+    <!-- 耳（基部被头部覆盖，向外微倾） -->
+    <g transform="rotate(-9 196 148)">
+      <path d="M168 152 C152 120 148 80 160 52 C164 44 174 46 180 54 C202 82 220 106 230 130 Z" fill="#C7CBDF" stroke="#3A3448" stroke-width="6" stroke-linejoin="round" />
+      <path d="M176 136 C166 112 163 88 170 68 C186 80 202 98 210 116 Z" fill="#F2B7C4" />
+    </g>
+    <g transform="rotate(9 316 148)">
+      <path d="M344 152 C360 120 364 80 352 52 C348 44 338 46 332 54 C310 82 292 106 282 130 Z" fill="#C7CBDF" stroke="#3A3448" stroke-width="6" stroke-linejoin="round" />
+      <path d="M336 136 C346 112 349 88 342 68 C326 80 310 98 302 116 Z" fill="#F2B7C4" />
+    </g>
+
+    <!-- 头 -->
+    <ellipse cx="256" cy="230" rx="118" ry="106" fill="#C7CBDF" stroke="#3A3448" stroke-width="6" />
+
+    <!-- 吻部浅色区 -->
+    <ellipse cx="256" cy="290" rx="60" ry="38" fill="#F7F2E7" />
+
+    <!-- 眉 -->
+    <path d="M174 174 C184 166 204 166 214 171" fill="none" stroke="#3A3448" stroke-width="5" stroke-linecap="round" />
+    <path d="M338 174 C328 166 308 166 298 171" fill="none" stroke="#3A3448" stroke-width="5" stroke-linecap="round" />
+
+    <!-- 左眼 -->
+    <ellipse cx="194" cy="226" rx="25" ry="29" fill="#FFF9F0" stroke="#3A3448" stroke-width="5" />
+    <circle cx="194" cy="229" r="19" fill="#E8A94F" />
+    <circle cx="194" cy="229" r="10" fill="#362E42" />
+    <circle cx="187" cy="221" r="6.5" fill="#FFFFFF" />
+    <circle cx="200" cy="237" r="3.5" fill="#FFFFFF" opacity="0.85" />
+    <path d="M172 216 C180 200 208 200 216 216" fill="none" stroke="#3A3448" stroke-width="7" stroke-linecap="round" />
+
+    <!-- 右眼 -->
+    <ellipse cx="318" cy="226" rx="25" ry="29" fill="#FFF9F0" stroke="#3A3448" stroke-width="5" />
+    <circle cx="318" cy="229" r="19" fill="#E8A94F" />
+    <circle cx="318" cy="229" r="10" fill="#362E42" />
+    <circle cx="311" cy="221" r="6.5" fill="#FFFFFF" />
+    <circle cx="324" cy="237" r="3.5" fill="#FFFFFF" opacity="0.85" />
+    <path d="M296 216 C304 200 332 200 340 216" fill="none" stroke="#3A3448" stroke-width="7" stroke-linecap="round" />
+
+    <!-- 腮红 -->
+    <ellipse cx="168" cy="274" rx="14" ry="9" fill="#F2A5B8" opacity="0.8" />
+    <ellipse cx="344" cy="274" rx="14" ry="9" fill="#F2A5B8" opacity="0.8" />
+
+    <!-- 鼻 -->
+    <path d="M246 268 C246 261 266 261 266 268 C266 276 258 283 256 283 C254 283 246 276 246 268 Z" fill="#E77D96" stroke="#3A3448" stroke-width="4" stroke-linejoin="round" />
+
+    <!-- ω 嘴 -->
+    <path d="M256 283 L256 292 M256 292 C251 299 242 300 237 295 M256 292 C261 299 270 300 275 295" fill="none" stroke="#3A3448" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- 胡须 -->
+    <path d="M132 262 C118 258 106 258 96 262 M134 284 C120 286 108 290 98 296" fill="none" stroke="#3A3448" stroke-width="4" stroke-linecap="round" opacity="0.55" />
+    <path d="M380 262 C394 258 406 258 416 262 M378 284 C392 286 404 290 414 296" fill="none" stroke="#3A3448" stroke-width="4" stroke-linecap="round" opacity="0.55" />
+  </g>
+</svg>

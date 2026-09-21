@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Furfolio 狐狸／猫结构诊断板 v1</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #d7d7d5;
+        color: #202020;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 64px; }
+      header { margin-bottom: 28px; }
+      h1 { margin: 0 0 8px; font-size: clamp(1.55rem, 3vw, 2.25rem); letter-spacing: -.035em; }
+      header p, .note { max-width: 76ch; margin: 0; color: #555; line-height: 1.65; }
+      h2 { margin: 42px 0 14px; font-size: 1.1rem; letter-spacing: .01em; }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: 104px repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .corner,
+      .column-label,
+      .row-label,
+      .frame {
+        border: 1px solid #b7b7b4;
+        background: #ececea;
+      }
+
+      .corner,
+      .column-label,
+      .row-label {
+        display: grid;
+        place-items: center;
+        min-height: 48px;
+        padding: 10px;
+        color: #3e3e3d;
+        font-size: .82rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+
+      .row-label { writing-mode: vertical-rl; min-height: 360px; }
+      .frame { min-width: 0; aspect-ratio: 1; padding: 18px; background: #f5f5f2; }
+      .frame a { display: block; width: 100%; height: 100%; }
+      .frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+      .blind-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .blind-grid .frame { position: relative; }
+      .blind-grid .frame::after {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 38%;
+        background: #f5f5f2;
+        border-bottom: 1px dashed #a3a3a0;
+        opacity: 1;
+        pointer-events: none;
+      }
+
+      .sizes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .size-card { border: 1px solid #b7b7b4; background: #f5f5f2; padding: 18px; }
+      .size-card h3 { margin: 0 0 16px; font-size: .92rem; }
+      .size-row { display: flex; align-items: flex-end; gap: 24px; min-height: 146px; overflow-x: auto; }
+      figure { margin: 0; text-align: center; }
+      figure img { display: block; margin: 0 auto 7px; }
+      figcaption { color: #666; font: 700 .7rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .px-128 { width: 128px; height: 128px; }
+      .px-64 { width: 64px; height: 64px; }
+      .px-32 { width: 32px; height: 32px; }
+
+      .note { margin-top: 18px; padding-left: 14px; border-left: 3px solid #969693; }
+
+      @media (max-width: 720px) {
+        main { width: min(100% - 24px, 1180px); padding-top: 24px; }
+        .comparison { grid-template-columns: 54px repeat(2, minmax(0, 1fr)); gap: 7px; }
+        .row-label { min-height: 180px; }
+        .frame { padding: 7px; }
+        .sizes { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>狐狸／猫 · 结构诊断板 v1</h1>
+        <p>只检查头颈肩底层结构。无五官、毛色、尾巴、服装、道具、描边与特效。点击大图可单独打开 SVG 原稿。</p>
+      </header>
+
+      <section aria-labelledby="comparison-title">
+        <h2 id="comparison-title">等条件对照</h2>
+        <div class="comparison">
+          <div class="corner" aria-hidden="true">物种</div>
+          <div class="column-label">纯黑剪影</div>
+          <div class="column-label">三值体块</div>
+
+          <div class="row-label">狐狸</div>
+          <div class="frame"><a href="fox-silhouette.svg"><img src="fox-silhouette.svg" alt="狐狸无五官纯黑头颈肩剪影" /></a></div>
+          <div class="frame"><a href="fox-three-value.svg"><img src="fox-three-value.svg" alt="狐狸无五官头颈肩三值结构稿" /></a></div>
+
+          <div class="row-label">猫</div>
+          <div class="frame"><a href="cat-silhouette.svg"><img src="cat-silhouette.svg" alt="猫无五官纯黑头颈肩剪影" /></a></div>
+          <div class="frame"><a href="cat-three-value.svg"><img src="cat-three-value.svg" alt="猫无五官头颈肩三值结构稿" /></a></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="blind-title">
+        <h2 id="blind-title">遮耳盲测</h2>
+        <div class="blind-grid">
+          <div class="frame"><img src="fox-silhouette.svg" alt="遮挡耳部后的第一张纯黑结构稿" /></div>
+          <div class="frame"><img src="cat-silhouette.svg" alt="遮挡耳部后的第二张纯黑结构稿" /></div>
+        </div>
+        <p class="note">忽略标签与耳部，只比较吻部前伸、颊颌收束、颈长和肩轴。此区故意不标物种。</p>
+      </section>
+
+      <section aria-labelledby="sizes-title">
+        <h2 id="sizes-title">机械缩放压力检查</h2>
+        <div class="sizes">
+          <article class="size-card">
+            <h3>样本 A · 纯黑剪影</h3>
+            <div class="size-row">
+              <figure><img class="px-128" src="fox-silhouette.svg" alt="样本 A 128 像素" /><figcaption>128 px</figcaption></figure>
+              <figure><img class="px-64" src="fox-silhouette.svg" alt="样本 A 64 像素" /><figcaption>64 px</figcaption></figure>
+              <figure><img class="px-32" src="fox-silhouette.svg" alt="样本 A 32 像素" /><figcaption>32 px</figcaption></figure>
+            </div>
+          </article>
+          <article class="size-card">
+            <h3>样本 B · 纯黑剪影</h3>
+            <div class="size-row">
+              <figure><img class="px-128" src="cat-silhouette.svg" alt="样本 B 128 像素" /><figcaption>128 px</figcaption></figure>
+              <figure><img class="px-64" src="cat-silhouette.svg" alt="样本 B 64 像素" /><figcaption>64 px</figcaption></figure>
+              <figure><img class="px-32" src="cat-silhouette.svg" alt="样本 B 32 像素" /><figcaption>32 px</figcaption></figure>
+            </div>
+          </article>
+        </div>
+        <p class="note">这里只暴露缩放损失，不代表 32 px 生产构图已经通过。若认种失败，后续 S 版本必须独立重画。</p>
+      </section>
+    </main>
+  </body>
+</html>
