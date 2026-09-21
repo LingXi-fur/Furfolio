@@ -240,6 +240,19 @@ function App() {
     }
   }
 
+  function openContentsCharacter(id: string) {
+    if (openingCharacterId === id) return;
+
+    if (view.name === "detail" && view.id === id && selected?.id === id) return;
+
+    if (view.name === "edit" && view.id === id && selected?.id === id) {
+      navigate({ name: "detail", id });
+      return;
+    }
+
+    void openCharacter(id, "contents");
+  }
+
   async function saveCharacter(input: CharacterInput) {
     cancelOpenRequest();
     const requestId = ++saveRequestRef.current;
@@ -330,16 +343,15 @@ function App() {
                   key={character.id}
                   type="button"
                   className="toc-entry"
-                  aria-current={"id" in view && view.id === character.id ? "true" : undefined}
+                  aria-current={view.name === "detail" && view.id === character.id ? "page" : undefined}
                   aria-busy={openingCharacterId === character.id || undefined}
                   aria-disabled={openingCharacterId === character.id || undefined}
-                  disabled={"id" in view && view.id === character.id}
                   aria-label={t("library.indexEntry", {
                     name: character.name,
                     record: t("library.recordNumber", { number: plateNumber }),
                   })}
                   data-character-id={character.id}
-                  onClick={() => void openCharacter(character.id, "contents")}
+                  onClick={() => openContentsCharacter(character.id)}
                 >
                   <span className="toc-entry-number">{plateNumber}</span>
                   <span className="toc-entry-name">{character.name}</span>

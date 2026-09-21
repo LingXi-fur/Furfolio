@@ -31,6 +31,7 @@ function isRendered(element: HTMLElement | null) {
 export function LibraryView({ characters, loading, error, notice, openingCharacterId, query, returnFocusTarget, onReturnFocus, onQueryChange, onCreate, onOpen, onRetry, onDismissNotice }: LibraryViewProps) {
   const { t } = useTranslation();
   const loadingRef = useRef<HTMLElement>(null);
+  const errorRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const createRef = useRef<HTMLButtonElement>(null);
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -61,6 +62,11 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
     if (!loading || !returnFocusTarget) return;
     loadingRef.current?.focus();
   }, [loading, returnFocusTarget]);
+
+  useEffect(() => {
+    if (!error) return;
+    errorRef.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     if (!returnFocusTarget || loading || error) return;
@@ -101,9 +107,9 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
 
   if (error) {
     return (
-      <main className="state-screen view-enter">
+      <main ref={errorRef} className="state-screen view-enter" tabIndex={-1} aria-labelledby="library-error-title">
         <span className="state-icon">!</span>
-        <h1>{t("errors.libraryTitle")}</h1>
+        <h1 id="library-error-title">{t("errors.libraryTitle")}</h1>
         <p>{error}</p>
         <button className="primary-button" type="button" onClick={onRetry}>{t("actions.retry")}</button>
       </main>

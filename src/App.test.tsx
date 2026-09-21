@@ -4,7 +4,7 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "./i18n";
 import App from "./App";
-import { setSystemTheme } from "./test/setup";
+import { setReducedMotion, setSystemTheme } from "./test/setup";
 
 const data = vi.hoisted(() => ({
   listCharacters: vi.fn(),
@@ -148,7 +148,21 @@ describe("App", () => {
     expect(preview.getAllByText("Untitled character")).toHaveLength(2);
     expect(preview.getAllByText("Species not set")).toHaveLength(2);
     expect(preview.getByText("Pronouns not set")).toBeInTheDocument();
+    expect(dock?.querySelector(".dock-identity")).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelector(".completion-block b")).toHaveTextContent("0%");
+    expect(document.querySelector(".completion-block span")).toHaveTextContent("0% complete");
 
+    await user.type(screen.getByRole("textbox", { name: /^name/i }), "   ");
+    await user.type(screen.getByRole("textbox", { name: /species/i }), "   ");
+    await user.type(screen.getByRole("textbox", { name: /pronouns/i }), "   ");
+
+    expect(preview.getAllByText("Untitled character")).toHaveLength(2);
+    expect(preview.getAllByText("Species not set")).toHaveLength(2);
+    expect(preview.getByText("Pronouns not set")).toBeInTheDocument();
+
+    await user.clear(screen.getByRole("textbox", { name: /^name/i }));
+    await user.clear(screen.getByRole("textbox", { name: /species/i }));
+    await user.clear(screen.getByRole("textbox", { name: /pronouns/i }));
     await user.type(screen.getByRole("textbox", { name: /^name/i }), "Nova");
     await user.type(screen.getByRole("textbox", { name: /species/i }), "Wolf");
     await user.type(screen.getByRole("textbox", { name: /pronouns/i }), "they/them");
@@ -675,7 +689,7 @@ describe("App", () => {
     expect(screen.queryByRole("heading", { name: "Echo" })).not.toBeInTheDocument();
   });
 
-  it("does not reload the current character from the contents rail", async () => {
+  it("keeps the current detail entry focusable without reloading it", async () => {
     const user = userEvent.setup();
     data.listCharacters.mockResolvedValue([novaSummary]);
     data.getCharacter.mockResolvedValue(nova);
@@ -684,12 +698,64 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: /open nova · featured plate/i }));
     const currentEntry = screen.getByRole("button", { name: /contents: nova · record 01/i });
 
-    expect(currentEntry).toHaveAttribute("aria-current", "true");
-    expect(currentEntry).toBeDisabled();
+    expect(currentEntry).toHaveAttribute("aria-current", "page");
+    expect(currentEntry).toBeEnabled();
+    currentEntry.focus();
+    expect(currentEntry).toHaveFocus();
     await user.click(currentEntry);
 
     expect(data.getCharacter).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Nova" })).toBeInTheDocument();
+  });
+
+  it("returns from editing through the contents rail without reloading the record", async () => {
+    const user = userEvent.setup();
+    data.listCharacters.mockResolvedValue([novaSummary]);
+    data.getCharacter.mockResolvedValue(nova);
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /open nova · featured plate/i }));
+    await user.click(screen.getByRole("button", { name: /edit record/i }));
+    await user.clear(screen.getByRole("textbox", { name: /^name/i }));
+    await user.type(screen.getByRole("textbox", { name: /^name/i }), "Changed draft");
+
+    const entry = screen.getByRole("button", { name: /contents: nova · record 01/i });
+    expect(entry).not.toHaveAttribute("aria-current");
+    expect(entry).toBeEnabled();
+    await user.click(entry);
+
+    expect(data.getCharacter).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Nova" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^name/i })).not.toBeInTheDocument();
+  });
+
+  it("marks a pending contents entry busy and ignores repeated activation", async () => {
+    const user = userEvent.setup();
+    const echoRequest = deferred<typeof nova>();
+    data.listCharacters.mockResolvedValue([novaSummary, echoSummary]);
+    data.getCharacter.mockImplementation((id: string) => (
+      id === nova.id ? Promise.resolve(nova) : echoRequest.promise
+    ));
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /open nova · featured plate/i }));
+    const echoEntry = screen.getByRole("button", { name: /contents: echo · record 02/i });
+    await user.click(echoEntry);
+
+    expect(echoEntry).toHaveAttribute("aria-busy", "true");
+    expect(echoEntry).toHaveAttribute("aria-disabled", "true");
+    expect(echoEntry).toBeEnabled();
+    await user.click(echoEntry);
+    expect(data.getCharacter).toHaveBeenCalledTimes(2);
+
+    echoRequest.resolve({
+      ...nova,
+      id: echoSummary.id,
+      name: echoSummary.name,
+      species: echoSummary.species,
+      tags: echoSummary.tags,
+    });
+    expect(await screen.findByRole("heading", { name: "Echo" })).toBeInTheDocument();
   });
 
   it("shows record-loading errors without replacing an open detail view", async () => {
@@ -921,6 +987,25 @@ describe("App", () => {
     });
   });
 
+  it("focuses the library error screen after a reload fails", async () => {
+    const user = userEvent.setup();
+    const reloadRequest = deferred<typeof novaSummary[]>();
+    data.listCharacters
+      .mockResolvedValueOnce([novaSummary])
+      .mockReturnValueOnce(reloadRequest.promise);
+    data.getCharacter.mockResolvedValue(nova);
+    data.deleteCharacter.mockResolvedValue(undefined);
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await user.click(screen.getByRole("button", { name: /delete character/i }));
+    reloadRequest.reject(new Error("Local store is locked."));
+
+    const errorHeading = await screen.findByRole("heading", { name: /character index could not be opened/i });
+    expect(errorHeading.closest("main")).toHaveFocus();
+  });
+
   it("does not turn a failed library load into an empty library through navigation", async () => {
     const user = userEvent.setup();
     data.listCharacters.mockRejectedValue(new Error("Local store is locked."));
@@ -1057,6 +1142,49 @@ describe("App", () => {
 
       expect(await screen.findByRole("heading", { name: /my characters/i })).toBeInTheDocument();
       expect(startViewTransition).toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(document, "startViewTransition");
+    }
+  });
+
+  it("keeps view transitions active when the system theme is dark", async () => {
+    act(() => setSystemTheme(true));
+    const user = userEvent.setup();
+    const startViewTransition = vi.fn((update: () => void) => {
+      update();
+      return { finished: Promise.resolve() };
+    });
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    });
+    render(<App />);
+
+    try {
+      await user.click(await screen.findByRole("button", { name: /create first character/i }));
+      expect(startViewTransition).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(document, "startViewTransition");
+    }
+  });
+
+  it("bypasses view transitions only when reduced motion is active", async () => {
+    act(() => setReducedMotion(true));
+    const user = userEvent.setup();
+    const startViewTransition = vi.fn((update: () => void) => {
+      update();
+      return { finished: Promise.resolve() };
+    });
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    });
+    render(<App />);
+
+    try {
+      await user.click(await screen.findByRole("button", { name: /create first character/i }));
+      expect(startViewTransition).not.toHaveBeenCalled();
+      expect(screen.getByRole("heading", { name: /define a character in your own terms/i })).toBeInTheDocument();
     } finally {
       Reflect.deleteProperty(document, "startViewTransition");
     }

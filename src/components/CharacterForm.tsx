@@ -24,6 +24,10 @@ interface FormValues {
 
 type SectionName = "identity" | "profile" | "palette";
 
+function previewText(value: string, fallback: string) {
+  return value.trim() ? value : fallback;
+}
+
 function initialValues(character?: Character): FormValues {
   return {
     name: character?.name ?? "",
@@ -42,6 +46,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
   const [nameError, setNameError] = useState(false);
   const [tagText, setTagText] = useState(values.tags.join(", "));
   const [tagsEdited, setTagsEdited] = useState(false);
+  const [colorsTouched, setColorsTouched] = useState(Boolean(character));
   const [activeSection, setActiveSection] = useState<SectionName>("identity");
   const nameRef = useRef<HTMLInputElement>(null);
   const identityRef = useRef<HTMLFieldSetElement>(null);
@@ -49,12 +54,15 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
   const paletteRef = useRef<HTMLFieldSetElement>(null);
 
   const filledFields = [values.name, values.species, values.pronouns, values.description, values.notes, tagText]
-    .filter((value) => value.trim()).length + values.colors.filter(Boolean).length;
+    .filter((value) => value.trim()).length + (colorsTouched ? values.colors.filter(Boolean).length : 0);
   const completion = Math.min(100, Math.round((filledFields / 8) * 100));
   const completedSteps = Math.ceil((completion / 100) * 4);
+  const previewName = previewText(values.name, t("form.untitled"));
+  const previewSpecies = previewText(values.species, t("character.unspecifiedSpecies"));
+  const previewPronouns = previewText(values.pronouns, t("form.pronounsPending"));
   const previewStyle = {
-    "--preview-primary": values.colors[0],
-    "--preview-secondary": values.colors[1],
+    "--preview-primary": values.colors[0] ?? DEFAULT_PALETTE[0],
+    "--preview-secondary": values.colors[1] ?? DEFAULT_PALETTE[1],
   } as CSSProperties;
 
   function updateText(field: "name" | "species" | "pronouns" | "description" | "notes", value: string) {
@@ -63,6 +71,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
   }
 
   function updateColor(index: number, value: string) {
+    setColorsTouched(true);
     setValues((current) => ({
       ...current,
       colors: current.colors.map((color, colorIndex) => colorIndex === index ? value : color),
@@ -106,19 +115,19 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
           <div className="record-preview">
             <CharacterCover
               compact
-              name={values.name || t("form.untitled")}
-              species={values.species || t("character.unspecifiedSpecies")}
+              name={previewName}
+              species={previewSpecies}
               colors={values.colors}
               registerLabel={character ? t("form.editRegister") : t("form.newRegister")}
             />
           </div>
-          <div className="dock-identity" aria-live="polite">
-            <span>{values.species || t("character.unspecifiedSpecies")}</span>
-            <strong>{values.name || t("form.untitled")}</strong>
-            <small>{values.pronouns || t("form.pronounsPending")}</small>
+          <div className="dock-identity" aria-hidden="true">
+            <span>{previewSpecies}</span>
+            <strong>{previewName}</strong>
+            <small>{previewPronouns}</small>
           </div>
           <div className="completion-block">
-            <span><b>{completion}%</b>{t("form.complete")}</span>
+            <span><b>{completion}%</b>{" "}{t("form.complete")}</span>
             <div className="completion-track" aria-hidden="true">
               {[0, 1, 2, 3].map((step) => (
                 <span className={step < completedSteps ? "filled" : ""} key={step} />
