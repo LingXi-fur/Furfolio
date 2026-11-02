@@ -2,9 +2,23 @@ use crate::error::AppError;
 use rusqlite::{params, Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-const LATEST_SCHEMA_VERSION: i64 = 1;
+const LATEST_SCHEMA_VERSION: i64 = 2;
+const MEDIA_SCHEMA: &str = r#"
+CREATE TABLE media_files (
+    name TEXT PRIMARY KEY NOT NULL,
+    staging_name TEXT NOT NULL UNIQUE,
+    asset_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('original', 'preview')),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    byte_size INTEGER NOT NULL CHECK (byte_size >= 0 AND byte_size <= 20971520),
+    state TEXT NOT NULL CHECK (state IN ('pendingImport', 'ready', 'pendingDelete')),
+    UNIQUE(asset_id, kind)
+);
+CREATE INDEX media_files_pending_index ON media_files(state);
+"#;
 
 const INITIAL_SCHEMA: &str = r#"
 CREATE TABLE characters (
@@ -126,28 +140,54 @@ CREATE INDEX character_colors_character_id_index ON character_colors(character_i
 CREATE INDEX characters_name_index ON characters(name COLLATE NOCASE);
 "#;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Database {
     path: PathBuf,
+    media_mutex: Arc<Mutex<()>>,
+    media_supported: bool,
 }
 
 impl Database {
     pub fn initialize(app_data_dir: &Path) -> Result<Self, AppError> {
-        fs::create_dir_all(app_data_dir)?;
-        fs::create_dir_all(app_data_dir.join("media"))?;
-        fs::create_dir_all(app_data_dir.join("backups"))?;
+        Self::initialize_for_platform(app_data_dir, cfg!(unix))
+    }
 
+    fn initialize_for_platform(
+        app_data_dir: &Path,
+        media_supported: bool,
+    ) -> Result<Self, AppError> {
+        if media_supported {
+            crate::media_store::private_directory(app_data_dir, true)?;
+        } else {
+            // Preserve v1's non-media library support. This does not authorize any media IO.
+            fs::create_dir_all(app_data_dir)?;
+        }
         let database = Self {
             path: app_data_dir.join("furfolio.sqlite3"),
+            media_mutex: Arc::new(Mutex::new(())),
+            media_supported,
         };
         let mut connection = database.open()?;
         migrate(&mut connection)?;
+        // Unsupported media platforms must not recover or touch any ledger files.
+        if media_supported {
+            crate::media::retry_media_cleanup(&database)?;
+        }
         Ok(database)
     }
 
     #[cfg(test)]
+    pub fn initialize_without_media_for_test(app_data_dir: &Path) -> Result<Self, AppError> {
+        Self::initialize_for_platform(app_data_dir, false)
+    }
+
+    #[cfg(test)]
     pub fn initialize_at(path: PathBuf) -> Result<Self, AppError> {
-        let database = Self { path };
+        let database = Self {
+            path,
+            media_mutex: Arc::new(Mutex::new(())),
+            media_supported: cfg!(unix),
+        };
         let mut connection = database.open()?;
         migrate(&mut connection)?;
         Ok(database)
@@ -161,13 +201,64 @@ impl Database {
         configure_connection(&connection)?;
         Ok(connection)
     }
+
+    /// Serialization across recovery and in-flight operations (Tauri commands run
+    /// on a multithreaded pool). Lock before any staged import or cleanup pass.
+    pub fn lock_media(&self) -> Result<MediaLock<'_>, AppError> {
+        let guard = self
+            .media_mutex
+            .try_lock()
+            .map_err(|_| AppError::MediaBusy)?;
+        let file = if self.media_supported {
+            Some(crate::media_store::lock_library(&self.path)?)
+        } else {
+            None
+        };
+        Ok(MediaLock {
+            _guard: guard,
+            _file: file,
+        })
+    }
+
+    /// Without safe media IO, even orphaned ledger credentials forbid deletion. The
+    /// check runs in the same SQLite transaction as character deletion, so another
+    /// instance cannot race a media row into a cascade after authorization.
+    pub fn ensure_character_delete_supported(
+        &self,
+        connection: &Connection,
+    ) -> Result<(), AppError> {
+        if !self.media_supported
+            && connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM assets) OR EXISTS(SELECT 1 FROM media_files)",
+                [],
+                |row| row.get::<_, bool>(0),
+            )?
+        {
+            return Err(std::io::Error::other(
+                "Safe media deletion is unavailable on this platform",
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    pub fn media_store(&self) -> Result<crate::media_store::Store, AppError> {
+        if !self.media_supported {
+            return Err(
+                std::io::Error::other("Safe media IO is unavailable on this platform").into(),
+            );
+        }
+        crate::media_store::Store::open(
+            self.path
+                .parent()
+                .ok_or_else(|| std::io::Error::other("Missing library parent"))?,
+        )
+    }
 }
 
-fn configure_connection(connection: &Connection) -> Result<(), AppError> {
-    connection.busy_timeout(Duration::from_secs(5))?;
-    connection.pragma_update(None, "foreign_keys", "ON")?;
-    connection.pragma_update(None, "journal_mode", "WAL")?;
-    Ok(())
+pub struct MediaLock<'a> {
+    _guard: MutexGuard<'a, ()>,
+    _file: Option<fs::File>,
 }
 
 fn migrate(connection: &mut Connection) -> Result<(), AppError> {
@@ -193,8 +284,19 @@ fn migrate(connection: &mut Connection) -> Result<(), AppError> {
     if current_version < 1 {
         apply_migration(&transaction, 1, "initial_schema", INITIAL_SCHEMA)?;
     }
+    // v2 is append-only; the v1 schema and its data are never rewritten.
+    if current_version < 2 {
+        apply_migration(&transaction, 2, "media_files_ledger", MEDIA_SCHEMA)?;
+    }
 
     transaction.commit()?;
+    Ok(())
+}
+
+fn configure_connection(connection: &Connection) -> Result<(), AppError> {
+    connection.busy_timeout(Duration::from_secs(5))?;
+    connection.pragma_update(None, "foreign_keys", "ON")?;
+    connection.pragma_update(None, "journal_mode", "WAL")?;
     Ok(())
 }
 
@@ -238,6 +340,37 @@ mod tests {
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(path.with_extension("sqlite3-shm"));
         let _ = fs::remove_file(path.with_extension("sqlite3-wal"));
+    }
+
+    #[test]
+    fn media_v2_adds_a_non_cascading_ownership_ledger() {
+        let path = temporary_database_path();
+        let database = Database::initialize_at(path.clone()).expect("initialize database");
+        let connection = database.open().expect("open database");
+        let version: i64 = connection
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 2, "media ledger requires an additive v2 migration");
+        let foreign_keys: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM pragma_foreign_key_list('media_files')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            foreign_keys, 0,
+            "cleanup credentials must survive character cascade"
+        );
+        connection.execute(
+            "INSERT INTO media_files (name, staging_name, asset_id, kind, sha256, byte_size, state)
+             VALUES (?1, ?2, 'asset', 'original', ?3, 1, 'pendingImport')",
+            params![format!("{}.bin", Uuid::new_v4()), format!("{}.part", Uuid::new_v4()), "a".repeat(64)],
+        ).unwrap();
+        drop(connection);
+        remove_database(&path);
     }
 
     #[test]
@@ -287,7 +420,7 @@ mod tests {
                 row.get(0)
             })
             .expect("count migrations");
-        assert_eq!(count, 1);
+        assert_eq!(count, LATEST_SCHEMA_VERSION);
 
         remove_database(&path);
     }

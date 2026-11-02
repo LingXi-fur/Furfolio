@@ -47,8 +47,9 @@ export interface CharacterInput {
 }
 
 export interface CommandError {
-  code: "invalidInput" | "notFound" | "unsupportedDatabase" | "storageError";
+  code: "invalidInput" | "notFound" | "unsupportedDatabase" | "storageError" | "invalidMedia" | "mediaTooLarge" | "mediaBusy" | "cleanupPending";
   message: string;
+  applied?: boolean;
 }
 
 export function createCharacter(input: CharacterInput) {

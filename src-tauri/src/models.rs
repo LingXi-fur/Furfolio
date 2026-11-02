@@ -79,10 +79,69 @@ pub struct NormalizedTag {
     pub normalized_name: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Asset {
+    pub id: String,
+    pub character_id: String,
+    pub original_filename: String,
+    pub mime_type: String,
+    pub byte_size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub artist_name: Option<String>,
+    pub source_url: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssetInput {
+    pub artist_name: Option<String>,
+    pub source_url: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCleanupStatus {
+    pub pending: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn media_contract_has_nullable_metadata_without_storage_paths() {
+        let input: AssetInput = serde_json::from_value(json!({})).unwrap();
+        assert!(input.artist_name.is_none());
+        assert!(input.source_url.is_none());
+        assert!(input.notes.is_none());
+        let asset = Asset {
+            id: "a".into(),
+            character_id: "c".into(),
+            original_filename: "ref.png".into(),
+            mime_type: "image/png".into(),
+            byte_size: 7,
+            width: 2,
+            height: 3,
+            artist_name: None,
+            source_url: None,
+            notes: None,
+            created_at: "now".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(asset).unwrap(),
+            json!({
+                "id":"a", "characterId":"c", "originalFilename":"ref.png", "mimeType":"image/png",
+                "byteSize":7, "width":2, "height":3, "artistName":null, "sourceUrl":null,
+                "notes":null, "createdAt":"now"
+            })
+        );
+    }
 
     #[test]
     fn serializes_character_contract_in_camel_case() {

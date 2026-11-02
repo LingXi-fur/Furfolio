@@ -115,15 +115,28 @@ pub fn update_character(
 }
 
 pub fn delete_character(database: &Database, id: &str) -> Result<(), AppError> {
+    let _guard = database.lock_media()?;
     let mut connection = database.open()?;
     let transaction = connection.transaction()?;
+    database.ensure_character_delete_supported(&transaction)?;
+    let ids = {
+        let mut statement = transaction.prepare("SELECT id FROM assets WHERE character_id=?1")?;
+        let ids = statement
+            .query_map([id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        ids
+    };
+    for asset in &ids {
+        crate::media::mark_asset(&transaction, asset)?;
+    }
     let changed = transaction.execute("DELETE FROM characters WHERE id = ?1", params![id])?;
     if changed == 0 {
         return Err(AppError::NotFound);
     }
     remove_orphaned_tags(&transaction)?;
     transaction.commit()?;
-    Ok(())
+    crate::media::cleanup_ids(database, &connection, &ids)
+        .map_err(|_| AppError::CleanupPending { applied: true })
 }
 
 fn normalize_input(input: CharacterInput) -> Result<NormalizedCharacterInput, AppError> {
@@ -353,6 +366,45 @@ mod tests {
             tags: vec![" Main ".to_owned(), "main".to_owned(), "Blue".to_owned()],
             colors: vec!["#12abEF".to_owned(), "#FFFFFF".to_owned()],
         }
+    }
+
+    #[test]
+    fn unsupported_media_platform_keeps_empty_library_crud_but_refuses_media_deletion() {
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("furfolio-platform-test-{}", Uuid::new_v4()));
+        let database = Database::initialize_without_media_for_test(&root).unwrap();
+        let character = create_character(&database, character_input("Nova")).unwrap();
+        let updated = update_character(&database, &character.id, character_input("Echo")).unwrap();
+        assert_eq!(
+            get_character(&database, &character.id).unwrap().name,
+            updated.name
+        );
+        assert_eq!(list_characters(&database).unwrap().len(), 1);
+        assert!(matches!(database.media_store(), Err(AppError::Io(_))));
+        delete_character(&database, &character.id).unwrap();
+        let character = create_character(&database, character_input("Protected")).unwrap();
+        let connection = database.open().unwrap();
+        connection.execute("INSERT INTO assets (id, character_id, original_filename, stored_relative_path, media_type, mime_type, byte_size, width, height, sha256, created_at) VALUES ('legacy', ?1, 'old.png', 'media/old.png', 'image', 'image/png', 1, 1, 1, ?2, 'now')", params![character.id, "0".repeat(64)]).unwrap();
+        let error = delete_character(&database, &character.id).unwrap_err();
+        let error = crate::error::CommandError::from(error);
+        assert_eq!(error.code, "storageError");
+        assert_eq!(error.applied, None);
+        assert!(get_character(&database, &character.id).is_ok());
+        connection
+            .execute("DELETE FROM assets WHERE id='legacy'", [])
+            .unwrap();
+        connection.execute("INSERT INTO media_files (name, staging_name, asset_id, kind, sha256, byte_size, state) VALUES ('unknown.bin', 'unknown.part', 'orphan', 'original', ?1, 1, 'pendingDelete')", ["0".repeat(64)]).unwrap();
+        assert!(delete_character(&database, &character.id).is_err());
+        assert!(get_character(&database, &character.id).is_ok());
+        let count: i64 = connection
+            .query_row("SELECT count(*) FROM media_files", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        drop(connection);
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -10,12 +10,23 @@ name = "furfolio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "=2.11.5", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
+tauri-plugin-dialog = "=2.4.2"
+image = { version = "0.25.8", default-features = false, features = ["png", "jpeg", "webp"] }
+sha2 = "0.10"
+cap-std = "3"
+url = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

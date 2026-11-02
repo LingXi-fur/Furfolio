@@ -17,7 +17,7 @@ Furfolio is a desktop character library built for people who want to keep their 
 
 Its interface treats each character as a record—not as content for a dashboard template. Layered paper, index marks, color swatches, and archive numbering form the visual language while the user's characters remain the only protagonists.
 
-> **Current stage:** Furfolio `0.1.0` is under active development. Character CRUD, search, localization, themes, and the local SQLite foundation are working and tested. Managed reference-image import, credits, and backup/restore UI remain future work.
+> **Current stage:** Furfolio `0.1.0` is under active development. The archive includes character CRUD and a managed reference-gallery implementation across Rust and React. Automated tests and an isolated Chrome UI exercise do not replace native desktop end-to-end acceptance, which is still incomplete. Backup/restore remains unimplemented.
 
 ## What works today
 
@@ -30,6 +30,24 @@ Its interface treats each character as a record—not as content for a dashboard
 - Persist data in a local SQLite database through typed Tauri commands
 - Run without an account, cloud synchronization, analytics, telemetry, or AI
 - Use responsive desktop and narrow-window layouts with accessible controls
+- Manage reference images in the detail-view frontend through typed IPC: native single-image selection, managed PNG previews, inline artist/source/notes editing, and confirmed removal
+- See persistent, retryable image-cleanup warnings without keeping already-deleted records visible
+
+### Managed reference gallery
+
+The gallery imports one static PNG, JPEG, or WebP at a time through a Rust-native file picker (20 MiB, 12,000 pixels per side, 24 MP). Canceling is not an error. Rust copies the original bytes into managed storage and generates a separate PNG preview; the source file is not modified. The frontend never receives source or database paths. Previews are capped at 4 MiB, with one preview request in flight and Blob URLs released on selection changes or unmount.
+
+Artist credits (200 characters), source URLs (2048), and image notes (10000) are trimmed before submission. Source URLs accept HTTP(S) without credentials and remain plain text: no automatic links, fetches, or remote previews. Media operations lock the affected character against duplicate mutations and character deletion, while navigation remains available. Committed deletions with pending file cleanup update the visible archive immediately and retain a global retry warning, including across navigation.
+
+An append-only schema migration adds a file-ownership ledger for interrupted imports and deletions. Cleanup handles only ledger-authorized files, not arbitrary directory contents. A partially written or externally changed file can remain pending rather than be deleted unsafely; retry cannot repair mismatched content automatically.
+
+**Current limits:**
+
+- Managed media I/O is implemented and tested on macOS. Windows retains the basic character archive but rejects unsupported media operations; its media feature and actual Windows execution are not validated. Linux is not validated.
+- JPEG compatibility is retained deliberately: the decoder may recover some damaged or truncated JPEGs by synthesizing pixels. Import success is **not** proof of JPEG integrity. Original bytes remain unchanged. The byte/dimension/pixel limits still apply.
+- The 128 MiB decoder allocation budget is not a hard process-RSS or all-scratch-memory limit, particularly for WebP.
+- Native picker → import → restart → edit → remove acceptance is incomplete. On 2026-11-01, a fresh, uninstrumented desktop build exposed a usable native WebArea, created a synthetic character, and opened/canceled the system image picker in an isolated library. The external driver's foreground check was corrected, but targeted keyboard navigation still did not open the path panel. Automatic input experiments stopped; no native image import completed. The remaining isolated test instance was stopped on 2026-11-02. See [native acceptance](docs/native-acceptance.md). Browser exercises use synthetic IPC and cannot prove native file handling.
+- Avatar selection/cropping, original-image viewing, batch import, and backup/restore are not included. Continue using non-critical data.
 
 ## Design principles
 
@@ -39,7 +57,7 @@ Its interface treats each character as a record—not as content for a dashboard
 | **Local by default** | Records remain on the device. No account or network service is required. |
 | **Calm archive language** | Paper layers, swatches, record numbers, index lines, and restrained depth replace glassmorphism and decorative gradients. |
 | **Portable ownership** | Complete export and restore are planned as core product capabilities, not premium extras. |
-| **Credits matter** | Managed references will preserve artist and source metadata when image support lands. |
+| **Credits matter** | The reference-gallery frontend keeps artist credits, source text, and image notes alongside each managed reference. |
 | **Accessible together** | Keyboard use, meaningful control names, responsive layouts, and English/Chinese copy ship as one interface. |
 
 ## Privacy model
@@ -138,8 +156,9 @@ design/                Original character-diagnostic SVG studies (not app assets
 - [x] Character create/read/update/delete flow
 - [x] Search, bilingual interface, and light/dark themes
 - [x] Responsive archive-style character interface
-- [ ] Managed reference-image import
-- [ ] Artist credit and source metadata workflow
+- [x] Reference-gallery frontend and typed native-import IPC client
+- [x] Artist credit, source text, image notes, and cleanup-retry UI
+- [ ] Native media integration and isolated desktop end-to-end acceptance
 - [ ] Full-library export and restore
 - [ ] Release packaging and migration hardening
 

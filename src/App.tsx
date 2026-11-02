@@ -5,6 +5,7 @@ import "./App.css";
 import { CharacterDetail } from "./components/CharacterDetail";
 import { CharacterForm } from "./components/CharacterForm";
 import { LibraryView } from "./components/LibraryView";
+import { isAppliedCleanup, mediaCleanupStatus, retryMediaCleanup } from "./data/assets";
 import {
   createCharacter,
   deleteCharacter,
@@ -120,6 +121,97 @@ function App() {
   const openRequestRef = useRef(0);
   const saveRequestRef = useRef(0);
   const libraryRequestRef = useRef(0);
+  const libraryLoadRef = useRef(0);
+  const [mediaDetailError, setMediaDetailError] = useState<{ characterId: string; message: string } | null>(null);
+  const [mediaLibraryNotice, setMediaLibraryNotice] = useState<string | null>(null);
+  const [busyCharacters, setBusyCharacters] = useState<Set<string>>(new Set());
+  const mediaBusyRef = useRef(new Set<string>());
+  const mediaRefreshRef = useRef(new Map<string, number>());
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  const [cleanupWarning, setCleanupWarning] = useState<"pending" | "unknown" | null>(null);
+  const [cleanupRetrying, setCleanupRetrying] = useState(false);
+  const cleanupRequestRef = useRef(0);
+  const retryingCleanupRef = useRef(false);
+  const deletingRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; cleanupRequestRef.current += 1; };
+  }, []);
+
+  const markCleanupPending = useCallback(() => {
+    cleanupRequestRef.current += 1;
+    if (mountedRef.current) setCleanupWarning("pending");
+  }, []);
+
+  const checkCleanup = useCallback(async () => {
+    const request = ++cleanupRequestRef.current;
+    try {
+      const status = await mediaCleanupStatus();
+      if (mountedRef.current && request === cleanupRequestRef.current) setCleanupWarning(status.pending > 0 ? "pending" : null);
+    } catch {
+      if (mountedRef.current && request === cleanupRequestRef.current) setCleanupWarning((current) => current ?? "unknown");
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => { if (active) void checkCleanup(); });
+    return () => { active = false; };
+  }, [checkCleanup]);
+
+  async function retryCleanup() {
+    if (retryingCleanupRef.current) return;
+    retryingCleanupRef.current = true;
+    setCleanupRetrying(true);
+    const request = ++cleanupRequestRef.current;
+    try {
+      const status = await retryMediaCleanup();
+      if (mountedRef.current && request === cleanupRequestRef.current) setCleanupWarning(status.pending > 0 ? "pending" : null);
+    } catch {
+      if (mountedRef.current && request === cleanupRequestRef.current) setCleanupWarning("pending");
+    } finally {
+      retryingCleanupRef.current = false;
+      if (mountedRef.current) setCleanupRetrying(false);
+    }
+  }
+
+  const changeMediaBusy = useCallback((id: string, busy: boolean) => {
+    if (busy) mediaBusyRef.current.add(id);
+    else mediaBusyRef.current.delete(id);
+    if (mountedRef.current) setBusyCharacters(new Set(mediaBusyRef.current));
+  }, []);
+
+  const deletedCharactersRef = useRef(new Set<string>());
+
+  const refreshMediaCharacter = useCallback(async (id: string) => {
+    const request = (mediaRefreshRef.current.get(id) ?? 0) + 1;
+    mediaRefreshRef.current.set(id, request);
+    const openRequest = openRequestRef.current;
+    const libraryRequest = ++libraryRequestRef.current;
+    const current = () => mountedRef.current && mediaRefreshRef.current.get(id) === request && !deletedCharactersRef.current.has(id);
+    await Promise.all([
+      getCharacter(id).then((character) => {
+        if (!current()) return;
+        setCharacters((entries) => upsertSummary(entries, character));
+        const currentView = viewRef.current;
+        setMediaDetailError((previous) => previous?.characterId === id ? null : previous);
+        if (openRequest === openRequestRef.current && currentView.name === "detail" && currentView.id === id) setSelected(character);
+      }).catch(() => {
+        if (current() && viewRef.current.name === "detail" && viewRef.current.id === id) setMediaDetailError({ characterId: id, message: i18n.t("gallery.refreshError") });
+      }),
+      listCharacters().then((entries) => {
+        if (current() && libraryRequest === libraryRequestRef.current) {
+          setCharacters(entries.filter((entry) => !deletedCharactersRef.current.has(entry.id)));
+          setMediaLibraryNotice(null);
+        }
+      }).catch(() => {
+        if (current() && libraryRequest === libraryRequestRef.current) setMediaLibraryNotice(i18n.t("gallery.refreshError"));
+      }),
+    ]);
+  }, [i18n]);
 
   const cancelSaveRequest = useCallback(() => {
     saveRequestRef.current += 1;
@@ -128,21 +220,23 @@ function App() {
 
   const loadLibrary = useCallback(async () => {
     const requestId = ++libraryRequestRef.current;
+    const loadId = ++libraryLoadRef.current;
     setLoading(true);
     setLibraryError(null);
     try {
       const loadedCharacters = await listCharacters();
-      if (requestId === libraryRequestRef.current) setCharacters(loadedCharacters);
+      if (requestId === libraryRequestRef.current) setCharacters(loadedCharacters.filter((entry) => !deletedCharactersRef.current.has(entry.id)));
     } catch (loadError) {
       if (requestId === libraryRequestRef.current) setLibraryError(errorMessage(loadError, i18n.t("errors.storage")));
     } finally {
-      if (requestId === libraryRequestRef.current) setLoading(false);
+      if (loadId === libraryLoadRef.current) setLoading(false);
     }
   }, [i18n]);
 
   useEffect(() => {
     let active = true;
     const requestId = ++libraryRequestRef.current;
+    const loadId = ++libraryLoadRef.current;
     listCharacters()
       .then((loadedCharacters) => {
         if (active && requestId === libraryRequestRef.current) setCharacters(loadedCharacters);
@@ -151,7 +245,7 @@ function App() {
         if (active && requestId === libraryRequestRef.current) setLibraryError(errorMessage(loadError, i18n.t("errors.storage")));
       })
       .finally(() => {
-        if (active && requestId === libraryRequestRef.current) setLoading(false);
+        if (active && loadId === libraryLoadRef.current) setLoading(false);
       });
     return () => { active = false; };
   }, [i18n]);
@@ -255,6 +349,10 @@ function App() {
 
   async function saveCharacter(input: CharacterInput) {
     cancelOpenRequest();
+    if (view.name === "edit") {
+      mediaRefreshRef.current.set(view.id, (mediaRefreshRef.current.get(view.id) ?? 0) + 1);
+      libraryRequestRef.current += 1;
+    }
     const requestId = ++saveRequestRef.current;
     setSaving(true);
     setError(null);
@@ -274,22 +372,39 @@ function App() {
   }
 
   async function removeCharacter() {
-    if (!selected) return;
+    if (!selected || deletingRef.current || mediaBusyRef.current.has(selected.id)) return;
+    const id = selected.id;
+    deletingRef.current = true;
     cancelOpenRequest();
     cancelSaveRequest();
     setDeleting(true);
     setError(null);
+    let applied = false;
     try {
-      await deleteCharacter(selected.id);
-      startViewTurn(() => {
-        setSelected(null);
-        setLibraryFocusTarget("create");
-        setView({ name: "library" });
-      });
-      await loadLibrary();
+      await deleteCharacter(id);
+      applied = true;
     } catch (deleteError) {
-      setError(errorMessage(deleteError, t("errors.delete")));
+      if (isAppliedCleanup(deleteError)) { applied = true; markCleanupPending(); }
+      else setError(errorMessage(deleteError, t("errors.delete")));
+    }
+    try {
+      if (applied) {
+        cancelOpenRequest();
+        deletedCharactersRef.current.add(id);
+        mediaRefreshRef.current.delete(id);
+        setCharacters((entries) => entries.filter((entry) => entry.id !== id));
+        const currentView = viewRef.current;
+        if ((currentView.name === "detail" || currentView.name === "edit") && currentView.id === id) {
+          startViewTurn(() => {
+            setSelected(null);
+            setLibraryFocusTarget("create");
+            setView({ name: "library" });
+          });
+        }
+        await loadLibrary();
+      }
     } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
   }
@@ -383,9 +498,10 @@ function App() {
       </aside>
 
       <div className="app-content">
-        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={libraryError} notice={libraryNotice} openingCharacterId={openingCharacterId} query={libraryQuery} returnFocusTarget={libraryFocusTarget} onReturnFocus={() => setLibraryFocusTarget(null)} onQueryChange={setLibraryQuery} onCreate={() => { setError(null); setLibraryNotice(null); navigate({ name: "create" }); }} onOpen={(id) => void openCharacter(id, "library")} onRetry={() => void loadLibrary()} onDismissNotice={() => setLibraryNotice(null)} />}
+        {cleanupWarning && <div className="media-cleanup-warning" role="alert"><p>{t(cleanupWarning === "pending" ? "gallery.cleanupPending" : "gallery.cleanupUnknown")}</p><button className="secondary-button" type="button" disabled={cleanupRetrying} onClick={() => void retryCleanup()}>{cleanupRetrying ? t("gallery.cleanupRetrying") : t("gallery.retryCleanup")}</button></div>}
+        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={libraryError} notice={libraryNotice ?? mediaLibraryNotice} openingCharacterId={openingCharacterId} query={libraryQuery} returnFocusTarget={libraryFocusTarget} onReturnFocus={() => setLibraryFocusTarget(null)} onQueryChange={setLibraryQuery} onCreate={() => { setError(null); setLibraryNotice(null); navigate({ name: "create" }); }} onOpen={(id) => void openCharacter(id, "library")} onRetry={() => void loadLibrary()} onDismissNotice={() => { setLibraryNotice(null); setMediaLibraryNotice(null); }} />}
         {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={() => showLibrary("create")} onSubmit={saveCharacter} />}
-        {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} error={error} onBack={() => showLibrary(libraryFocusTarget ?? { characterId: selected.id, origin: "library" })} onEdit={() => navigate({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
+        {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} mediaBusy={busyCharacters.has(selected.id)} onChanged={(id) => void refreshMediaCharacter(id)} onMediaBusyChange={changeMediaBusy} onCleanupPending={markCleanupPending} onCheckCleanup={() => void checkCleanup()} error={error ?? (mediaDetailError?.characterId === selected.id ? mediaDetailError.message : null)} onBack={() => showLibrary(libraryFocusTarget ?? { characterId: selected.id, origin: "library" })} onEdit={() => navigate({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
         {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => navigate({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
       </div>
     </div>

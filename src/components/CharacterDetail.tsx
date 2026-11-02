@@ -3,19 +3,25 @@ import { useTranslation } from "react-i18next";
 import type { Character } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ReferenceGallery } from "./ReferenceGallery";
 import { DEFAULT_PALETTE, coverPalette } from "./characterPalette";
 
 interface CharacterDetailProps {
   character: Character;
   plateIndex: number;
   deleting: boolean;
+  mediaBusy: boolean;
+  onChanged: (characterId: string) => void;
+  onMediaBusyChange: (characterId: string, busy: boolean) => void;
+  onCleanupPending: () => void;
+  onCheckCleanup: () => void;
   error: string | null;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
 }
 
-export function CharacterDetail({ character, plateIndex, deleting, error, onBack, onEdit, onDelete }: CharacterDetailProps) {
+export function CharacterDetail({ character, plateIndex, deleting, mediaBusy, error, onBack, onEdit, onDelete, onChanged, onMediaBusyChange, onCleanupPending, onCheckCleanup }: CharacterDetailProps) {
   const { t, i18n } = useTranslation();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const backButtonRef = useRef<HTMLButtonElement>(null);
@@ -36,8 +42,8 @@ export function CharacterDetail({ character, plateIndex, deleting, error, onBack
       <div className="detail-toolbar">
         <button ref={backButtonRef} className="back-button" type="button" onClick={onBack}>← {t("actions.backToLibrary")}</button>
         <div className="detail-actions">
-          <button className="secondary-button" type="button" onClick={onEdit}>{t("actions.edit")}</button>
-          <button ref={deleteButtonRef} className="danger-link" type="button" onClick={() => setConfirmingDelete(true)}>{t("actions.delete")}</button>
+          <button className="secondary-button" type="button" onClick={onEdit} disabled={mediaBusy || deleting}>{t("actions.edit")}</button>
+          <button ref={deleteButtonRef} className="danger-link" type="button" disabled={mediaBusy || deleting} onClick={() => setConfirmingDelete(true)}>{t("actions.delete")}</button>
         </div>
       </div>
 
@@ -45,7 +51,6 @@ export function CharacterDetail({ character, plateIndex, deleting, error, onBack
         <aside className="detail-cover-wrap">
           <CharacterCover name={character.name} species={character.species} colors={character.colors} index={plateIndex} />
           <span className="collection-stamp" aria-hidden="true">EX LIBRIS<br />FURFOLIO · LOCAL</span>
-          <span className="no-image-badge">{t("detail.noReferenceImage")}</span>
         </aside>
 
         <div className="detail-body">
@@ -81,7 +86,7 @@ export function CharacterDetail({ character, plateIndex, deleting, error, onBack
           </article>
           <article className="detail-section detail-references">
             <span className="panel-index">03</span>
-            <div><h2>{t("detail.references")}</h2><p>{t("detail.referencesHint")}</p><span className="soon-chip">{t("comingSoon")}</span></div>
+            <ReferenceGallery characterId={character.id} busy={mediaBusy} disabled={deleting || confirmingDelete} onChanged={onChanged} onBusyChange={onMediaBusyChange} onCleanupPending={onCleanupPending} onCheckCleanup={onCheckCleanup} />
           </article>
         </div>
       </section>

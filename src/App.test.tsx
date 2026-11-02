@@ -16,6 +16,12 @@ const data = vi.hoisted(() => ({
 
 vi.mock("./data/characters", () => data);
 
+const media = vi.hoisted(() => ({
+  listAssets: vi.fn(), importAsset: vi.fn(), readAssetPreview: vi.fn(), updateAsset: vi.fn(), deleteAsset: vi.fn(),
+  mediaCleanupStatus: vi.fn(), retryMediaCleanup: vi.fn(),
+}));
+vi.mock("./data/assets", async (importOriginal) => ({ ...await importOriginal<typeof import("./data/assets")>(), ...media }));
+
 const nova = {
   id: "nova-id",
   name: "Nova",
@@ -75,6 +81,11 @@ describe("App", () => {
     vi.restoreAllMocks();
     Object.values(data).forEach((mock) => mock.mockReset());
     data.listCharacters.mockResolvedValue([]);
+    Object.values(media).forEach((mock) => mock.mockReset());
+    media.listAssets.mockResolvedValue([]);
+    media.importAsset.mockResolvedValue(null);
+    media.mediaCleanupStatus.mockResolvedValue({ pending: 0 });
+    media.retryMediaCleanup.mockResolvedValue({ pending: 0 });
   });
 
   it("loads the local library and shows the empty state", async () => {
@@ -935,7 +946,7 @@ describe("App", () => {
     expect(screen.getByRole("dialog", { name: /delete nova prime/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /delete character/i }));
     await waitFor(() => expect(data.deleteCharacter).toHaveBeenCalledWith("nova-id"));
-    expect(await screen.findByRole("heading", { name: /my characters/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /start your first character record/i })).toBeInTheDocument();
   });
 
   it("keeps the current view when a superseded save resolves", async () => {
@@ -1199,6 +1210,215 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "建立第一份角色档案。" })).toBeInTheDocument();
     expect(localStorage.getItem("furfolio-language")).toBe("zh-CN");
+  });
+
+  it("queries cleanup status at startup without warning when nothing is pending", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: /start your first character record/i });
+    expect(media.mediaCleanupStatus).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/local image files still need cleanup/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps startup cleanup warnings through navigation and retries after failure", async () => {
+    const user = userEvent.setup();
+    media.mediaCleanupStatus.mockRejectedValue({ code: "storageError" });
+    media.retryMediaCleanup.mockRejectedValueOnce({ code: "storageError" }).mockResolvedValueOnce({ pending: 0 });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not check local image cleanup/i);
+    await user.click(screen.getByRole("button", { name: /create first character/i }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/could not check local image cleanup/i);
+    await user.click(screen.getByRole("button", { name: "Retry image cleanup" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/local image files still need cleanup/i);
+    await user.click(screen.getByRole("button", { name: "Retry image cleanup" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("refreshes a committed character deletion even when media cleanup is pending", async () => {
+    const user = userEvent.setup();
+    data.listCharacters.mockResolvedValueOnce([novaSummary]).mockResolvedValueOnce([]);
+    data.getCharacter.mockResolvedValue(nova);
+    data.deleteCharacter.mockRejectedValue({ code: "cleanupPending", message: "fixed", applied: true });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await user.click(screen.getByRole("button", { name: /delete character/i }));
+    expect(await screen.findByRole("heading", { name: /start your first character record/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Nova" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/local image files still need cleanup/i);
+    await user.click(screen.getByRole("button", { name: "Retry image cleanup" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("blocks character deletion during import even after leaving and reopening its gallery", async () => {
+    const user = userEvent.setup(); const importing = deferred<null>();
+    data.listCharacters.mockResolvedValue([novaSummary]); data.getCharacter.mockResolvedValue(nova);
+    media.importAsset.mockReturnValue(importing.promise);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /character index/i }));
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Import reference image" })).toBeDisabled();
+    await act(async () => { importing.resolve(null); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^delete$/i })).toBeEnabled());
+  });
+
+  it("checks cleanup after failed imports without replacing the character detail", async () => {
+    const user = userEvent.setup(); data.listCharacters.mockResolvedValue([novaSummary]); data.getCharacter.mockResolvedValue(nova);
+    media.importAsset.mockRejectedValue({ code: "storageError" });
+    media.mediaCleanupStatus.mockResolvedValueOnce({ pending: 0 }).mockResolvedValueOnce({ pending: 1 });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    await waitFor(() => expect(media.mediaCleanupStatus).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/local image files still need cleanup/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Nova" })).toBeInTheDocument();
+  });
+
+  it("refreshes character revision and library order without remounting a successful import", async () => {
+    const user = userEvent.setup();
+    const refreshed = deferred<typeof nova>();
+    const reordered = deferred<typeof novaSummary[]>();
+    data.listCharacters.mockResolvedValueOnce([novaSummary, echoSummary]).mockReturnValueOnce(reordered.promise);
+    data.getCharacter.mockResolvedValueOnce(nova).mockReturnValueOnce(refreshed.promise);
+    media.importAsset.mockResolvedValue({ id: "image", characterId: nova.id, originalFilename: "import.png", mimeType: "image/png", byteSize: 20, width: 12, height: 10, artistName: null, sourceUrl: null, notes: null, createdAt: nova.createdAt });
+    media.readAssetPreview.mockResolvedValue(new Blob(["preview"], { type: "image/png" }));
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn().mockReturnValue("blob:app-preview") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    const image = await screen.findByRole("img", { name: "import.png" });
+    await user.click(screen.getByRole("button", { name: "Edit image details" }));
+    await user.type(screen.getByRole("textbox", { name: "Artist" }), "Unsaved draft");
+    await act(async () => {
+      refreshed.resolve({ ...nova, updatedAt: "2026-10-30T00:00:00Z" });
+      reordered.resolve([echoSummary, { ...novaSummary, updatedAt: "2026-10-30T00:00:00Z" }]);
+    });
+    expect(screen.getByRole("img", { name: "import.png" })).toBe(image);
+    expect(screen.getByRole("textbox", { name: "Artist" })).toHaveValue("Unsaved draft");
+    expect(screen.getByRole("button", { name: /contents: nova · record 02/i })).toBeInTheDocument();
+    expect(media.readAssetPreview).toHaveBeenCalledTimes(1);
+    expect(data.getCharacter).toHaveBeenCalledTimes(2);
+    expect(data.listCharacters).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resurrect a deleted character from an opening request started during deletion", async () => {
+    const user = userEvent.setup();
+    const deleting = deferred<null>();
+    const reopening = deferred<typeof nova>();
+    data.listCharacters.mockResolvedValueOnce([novaSummary]).mockResolvedValueOnce([]);
+    data.getCharacter.mockResolvedValueOnce(nova).mockReturnValueOnce(reopening.promise);
+    data.deleteCharacter.mockReturnValue(deleting.promise);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await user.click(screen.getByRole("button", { name: /delete character/i }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await act(async () => { deleting.resolve(null); });
+    await screen.findByRole("heading", { name: /start your first character record/i });
+    await act(async () => { reopening.resolve(nova); });
+    expect(screen.queryByRole("heading", { name: "Nova" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /start your first character record/i })).toBeInTheDocument();
+  });
+
+  it("settles a foreground library load when a late media refresh supersedes its data request", async () => {
+    const user = userEvent.setup();
+    const importing = deferred<null | object>();
+    const foregroundList = deferred<typeof novaSummary[]>();
+    const echo = { ...nova, id: echoSummary.id, name: "Echo" };
+    const savedEcho = { ...echo, name: "Echo Prime" };
+    data.listCharacters.mockResolvedValueOnce([novaSummary, echoSummary]).mockReturnValueOnce(foregroundList.promise).mockResolvedValueOnce([novaSummary, { ...echoSummary, name: "Echo Prime" }]);
+    data.getCharacter.mockImplementation((id: string) => Promise.resolve(id === nova.id ? nova : echo));
+    data.updateCharacter.mockResolvedValue(savedEcho);
+    media.importAsset.mockReturnValue(importing.promise);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    await user.click(screen.getByRole("button", { name: /contents: echo/i }));
+    await user.click(screen.getByRole("button", { name: "Edit record" }));
+    const name = screen.getByRole("textbox", { name: /^name/i });
+    await user.clear(name); await user.type(name, "Echo Prime");
+    await user.click(screen.getByRole("button", { name: "Save character" }));
+    await waitFor(() => expect(data.listCharacters).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await act(async () => { importing.resolve({ id: "late-import", characterId: nova.id }); });
+    await waitFor(() => expect(data.listCharacters).toHaveBeenCalledTimes(3));
+    await act(async () => { foregroundList.resolve([novaSummary, { ...echoSummary, name: "Echo Prime" }]); });
+    expect(await screen.findByRole("button", { name: /open echo prime/i })).toBeInTheDocument();
+    expect(screen.queryByText(/opening the character archive/i)).not.toBeInTheDocument();
+  });
+
+  it("does not roll back a saved name when an older media character read arrives late", async () => {
+    const user = userEvent.setup(); const oldCharacter = deferred<typeof nova>();
+    const renamed = { ...nova, name: "Nova Prime" };
+    data.listCharacters.mockResolvedValueOnce([novaSummary]).mockResolvedValueOnce([novaSummary]).mockResolvedValueOnce([{ ...novaSummary, name: "Nova Prime" }]);
+    data.getCharacter.mockResolvedValueOnce(nova).mockReturnValueOnce(oldCharacter.promise);
+    data.updateCharacter.mockResolvedValue(renamed);
+    media.importAsset.mockResolvedValue({ id: "image", characterId: nova.id, originalFilename: "image.png", width: 12, height: 10 });
+    media.readAssetPreview.mockResolvedValue(new Blob(["preview"], { type: "image/png" }));
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn().mockReturnValue("blob:name") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    await user.click(screen.getByRole("button", { name: "Edit record" }));
+    const name = screen.getByRole("textbox", { name: /^name/i });
+    await user.clear(name); await user.type(name, "Nova Prime");
+    await user.click(screen.getByRole("button", { name: "Save character" }));
+    await screen.findByRole("heading", { name: "Nova Prime" });
+    await act(async () => { oldCharacter.resolve(nova); });
+    expect(screen.getByRole("button", { name: /contents: nova prime/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /contents: nova ·/i })).not.toBeInTheDocument();
+  });
+
+  it("clears only media refresh errors after a successful later refresh", async () => {
+    const user = userEvent.setup();
+    data.listCharacters.mockResolvedValueOnce([novaSummary]).mockRejectedValueOnce(new Error("list failure")).mockResolvedValueOnce([novaSummary]);
+    data.getCharacter.mockResolvedValueOnce(nova).mockRejectedValueOnce(new Error("refresh failure")).mockResolvedValueOnce(nova);
+    media.importAsset.mockResolvedValueOnce({ id: "one", characterId: nova.id, originalFilename: "one.png", width: 12, height: 10 }).mockResolvedValueOnce({ id: "two", characterId: nova.id, originalFilename: "two.png", width: 12, height: 10 });
+    media.readAssetPreview.mockResolvedValue(new Blob(["preview"], { type: "image/png" }));
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn().mockReturnValue("blob:refresh") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/image changes were saved/i);
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    await waitFor(() => expect(data.getCharacter).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /character index/i }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not clear an unrelated deletion error when a media refresh succeeds", async () => {
+    const user = userEvent.setup(); const pendingCharacter = deferred<typeof nova>();
+    const pendingList = deferred<typeof novaSummary[]>();
+    data.listCharacters.mockResolvedValueOnce([novaSummary]).mockReturnValueOnce(pendingList.promise);
+    data.getCharacter.mockResolvedValueOnce(nova).mockReturnValueOnce(pendingCharacter.promise);
+    data.deleteCharacter.mockRejectedValue(new Error("Deletion remains locked."));
+    media.importAsset.mockResolvedValue({ id: "image", characterId: nova.id, originalFilename: "image.png", width: 12, height: 10 });
+    media.readAssetPreview.mockResolvedValue(new Blob(["preview"], { type: "image/png" }));
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn().mockReturnValue("blob:other-error") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open nova/i }));
+    await screen.findByText("No reference images yet.");
+    await user.click(screen.getByRole("button", { name: "Import reference image" }));
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await user.click(screen.getByRole("button", { name: /delete character/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Deletion remains locked.");
+    await act(async () => { pendingCharacter.resolve(nova); pendingList.resolve([novaSummary]); });
+    expect(screen.getByRole("alert")).toHaveTextContent("Deletion remains locked.");
   });
 
   it("follows the system theme until the user selects one", async () => {
