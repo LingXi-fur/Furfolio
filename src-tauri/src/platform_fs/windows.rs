@@ -27,7 +27,7 @@ use windows_sys::Win32::{
     Storage::FileSystem::{
         CreateFileW, FileBasicInfo, FileDispositionInfo, FileIdInfo, FileStandardInfo,
         GetDriveTypeW, GetFileInformationByHandleEx, GetVolumeInformationByHandleW, LockFileEx,
-        ReOpenFile, SetFileInformationByHandle, FILE_BASIC_INFO, FILE_DISPOSITION_INFO,
+        SetFileInformationByHandle, FILE_BASIC_INFO, FILE_DISPOSITION_INFO,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_SHARE_READ,
         FILE_SHARE_WRITE, FILE_STANDARD_INFO, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY,
         OPEN_EXISTING,
@@ -634,28 +634,6 @@ fn open_at(
     }
     Ok(file)
 }
-fn reopen(file: &File) -> io::Result<File> {
-    // ReOpenFile binds the existing object, never its former ambient pathname. A second
-    // handle cannot exceed the first handle's granted access, so this reopen keeps the
-    // ancestor's READ_DIR rights; FILE_ADD_FILE/FILE_ADD_SUBDIRECTORY/READ_CONTROL for
-    // creating the final component are already inside READ_DIR and granted to handle one.
-    let handle = unsafe {
-        ReOpenFile(
-            raw(file),
-            READ_DIR,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-        )
-    };
-    if handle as isize == -1 {
-        return Err(io::Error::last_os_error());
-    }
-    let opened = File::from(unsafe { OwnedHandle::from_raw_handle(handle) });
-    if identity(file)? != identity(&opened)? {
-        return Err(unsafe_entry());
-    }
-    Ok(opened)
-}
 fn volume(file: &File, drive: u8) -> io::Result<()> {
     let root = [u16::from(drive), b':' as u16, b'\\' as u16, 0];
     if unsafe { GetDriveTypeW(root.as_ptr()) } != 3 {
@@ -774,15 +752,14 @@ impl Directory {
             let next = match open_at(&file, name, access, FILE_OPEN, true, false) {
                 Ok(f) => f,
                 Err(e) if create && e.kind() == io::ErrorKind::NotFound => {
-                    // ReOpenFile cannot exceed the first handle's granted mask, so a
-                    // WRITE_DIR upgrade of this READ_DIR ancestor is always denied;
-                    // the runner denial pointed at exactly this upgrade. READ_DIR
-                    // already carries READ_CONTROL plus FILE_ADD_FILE and
-                    // FILE_ADD_SUBDIRECTORY, which are the only rights NtCreateFile
-                    // needs to create the final component; the created object gets
-                    // WRITE_DIR rights through its own private descriptor below.
-                    let writable = reopen(&file)?;
-                    let created = open_at(&writable, name, WRITE_DIR, FILE_OPEN_IF, true, true)?;
+                    // The runner diagnostics proved the held READ_DIR ancestor handle
+                    // can create the final component directly (nt_create_private: ok):
+                    // READ_DIR already carries READ_CONTROL plus FILE_ADD_FILE and
+                    // FILE_ADD_SUBDIRECTORY, the only rights NtCreateFile needs here.
+                    // ReOpenFile itself denied this exact call on the runner, so it is
+                    // gone. The created object gets WRITE_DIR rights through its own
+                    // private descriptor below.
+                    let created = open_at(&file, name, WRITE_DIR, FILE_OPEN_IF, true, true)?;
                     verify_private(&created)?;
                     created
                 }
@@ -1091,6 +1068,7 @@ mod security_tests {
         GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
         PROTECTED_DACL_SECURITY_INFORMATION,
     };
+    use windows_sys::Win32::Storage::FileSystem::ReOpenFile;
 
     fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
         assert_eq!(aces.len(), 3);
