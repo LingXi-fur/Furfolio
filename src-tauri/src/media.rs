@@ -356,6 +356,10 @@ fn pending(c: &Connection) -> Result<MediaCleanupStatus, AppError> {
 }
 pub fn retry_media_cleanup(db: &Database) -> Result<MediaCleanupStatus, AppError> {
     let _guard = db.lock_media()?;
+    recover_locked(db)
+}
+/// Initialization already owns the same cross-process lock across migration and recovery.
+pub(crate) fn recover_locked(db: &Database) -> Result<MediaCleanupStatus, AppError> {
     let c = db.open()?;
     let mut s = c.prepare("SELECT DISTINCT asset_id FROM media_files WHERE state!='ready'")?;
     let ids = s

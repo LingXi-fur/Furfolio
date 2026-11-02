@@ -1,4 +1,10 @@
-//! Windows runner spikes. Production IO stays fail-closed until these contracts pass.
+//! Small capability-based filesystem boundary shared by media and backup IO.
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
 mod windows;
 
-pub(crate) use windows::{identity, rename_exclusive};
+#[cfg(unix)]
+pub(crate) use unix::*;
+#[cfg(windows)]
+pub(crate) use windows::*;

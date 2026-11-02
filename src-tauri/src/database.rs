@@ -150,7 +150,7 @@ pub struct Database {
 
 impl Database {
     pub fn initialize(app_data_dir: &Path) -> Result<Self, AppError> {
-        Self::initialize_for_platform(app_data_dir, cfg!(unix))
+        Self::initialize_for_platform(app_data_dir, cfg!(any(unix, windows)))
     }
 
     fn initialize_for_platform(
@@ -169,11 +169,16 @@ impl Database {
             export_mutex: Arc::new(Mutex::new(())),
             media_supported,
         };
+        let _initialization = if media_supported {
+            Some(lock_initialization(&database.path)?)
+        } else {
+            None
+        };
         let mut connection = database.open()?;
         migrate(&mut connection)?;
         // Unsupported media platforms must not recover or touch any ledger files.
         if media_supported {
-            crate::media::retry_media_cleanup(&database)?;
+            crate::media::recover_locked(&database)?;
         }
         Ok(database)
     }
@@ -189,8 +194,15 @@ impl Database {
             path,
             media_mutex: Arc::new(Mutex::new(())),
             export_mutex: Arc::new(Mutex::new(())),
-            media_supported: cfg!(unix),
+            media_supported: cfg!(any(unix, windows)),
         };
+        // This legacy test helper permits arbitrary SQLite filenames outside a private
+        // library. Serialize only helper construction; production startup uses the held
+        // capability-rooted cross-process media lock across migration and recovery.
+        static TEST_INITIALIZATION: Mutex<()> = Mutex::new(());
+        let _initialization = TEST_INITIALIZATION
+            .lock()
+            .map_err(|_| AppError::MediaBusy)?;
         let mut connection = database.open()?;
         migrate(&mut connection)?;
         Ok(database)
@@ -321,7 +333,20 @@ impl Database {
 
 pub struct MediaLock<'a> {
     _guard: MutexGuard<'a, ()>,
-    _file: Option<fs::File>,
+    _file: Option<crate::media_store::LibraryLock>,
+}
+
+fn lock_initialization(path: &Path) -> Result<crate::media_store::LibraryLock, AppError> {
+    let started = std::time::Instant::now();
+    loop {
+        match crate::media_store::lock_library(path) {
+            Ok(lock) => return Ok(lock),
+            Err(AppError::MediaBusy) if started.elapsed() < Duration::from_secs(5) => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn migrate(connection: &mut Connection) -> Result<(), AppError> {

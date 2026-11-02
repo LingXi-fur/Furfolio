@@ -220,6 +220,110 @@ fn windows_wal_and_media_backup_is_independent_and_preserves_source() {
 }
 
 #[test]
+fn windows_hardlinked_source_is_rejected_without_touching_either_name() {
+    let f = Fixture::new();
+    let character = f.character();
+    let source = f.root.join("linked.png");
+    let alias = f.root.join("alias.png");
+    let mut cursor = Cursor::new(Vec::new());
+    DynamicImage::new_rgb8(8, 8)
+        .write_to(&mut cursor, ImageFormat::Png)
+        .unwrap();
+    fs::write(&source, cursor.get_ref()).unwrap();
+    fs::hard_link(&source, &alias).unwrap();
+    assert!(media::import_selected(&f.db, &character, Some(&source)).is_err());
+    assert_eq!(fs::read(source).unwrap(), *cursor.get_ref());
+    assert_eq!(fs::read(alias).unwrap(), *cursor.get_ref());
+    assert!(media::list_assets(&f.db, &character).unwrap().is_empty());
+}
+
+#[test]
+fn windows_held_parent_cannot_be_renamed_and_created_file_has_one_full_id() {
+    let f = Fixture::new();
+    let private = f.root.join("private-parent");
+    let directory = platform_fs::Directory::open(&private, true).unwrap();
+    let mut file = directory.open_file("owned.bin", true).unwrap();
+    std::io::Write::write_all(&mut file, b"owned").unwrap();
+    file.sync_all().unwrap();
+    platform_fs::verify_private(&file).unwrap();
+    let state = platform_fs::file_state(&file).unwrap();
+    assert_eq!(state.links, 1);
+    assert_eq!(state.size, 5);
+    assert!(!state.directory);
+    assert!(fs::rename(&private, f.root.join("replaced-parent")).is_err());
+    drop(file);
+    let reopened = directory.open_file("owned.bin", false).unwrap();
+    assert_eq!(platform_fs::file_state(&reopened).unwrap(), state);
+}
+
+#[test]
+fn windows_lock_is_nonblocking_and_process_death_releases_fixed_range() {
+    const CHILD_ENV: &str = "FURFOLIO_SYNTHETIC_LOCK_CHILD";
+    if let Some(root) = std::env::var_os(CHILD_ENV) {
+        let root = PathBuf::from(root);
+        let _lock = platform_fs::lock_library(&root.join("furfolio.sqlite3")).unwrap();
+        fs::write(root.join("child-ready"), b"ready").unwrap();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+    let f = Fixture::new();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "windows_tests::windows_lock_is_nonblocking_and_process_death_releases_fixed_range",
+            "--nocapture",
+        ])
+        .env(CHILD_ENV, &f.library)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    while !f.library.join("child-ready").exists()
+        && started.elapsed() < std::time::Duration::from_secs(10)
+    {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("lock child exited before ready: {status}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if !f.library.join("child-ready").exists() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        panic!("lock child failed to become ready");
+    }
+    let busy = platform_fs::lock_library(&f.library.join("furfolio.sqlite3"));
+    assert!(matches!(busy, Err(crate::error::AppError::MediaBusy)));
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let _lock = platform_fs::lock_library(&f.library.join("furfolio.sqlite3")).unwrap();
+}
+
+#[test]
+fn windows_concurrent_production_initialization_serializes_migration_and_recovery() {
+    let f = Fixture::new();
+    let path = f.root.join("concurrent library");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                Database::initialize(&path)
+            })
+        })
+        .collect();
+    barrier.wait();
+    for worker in workers {
+        worker.join().unwrap().unwrap();
+    }
+    let db = Database::initialize(&path).unwrap();
+    assert_eq!(media::media_cleanup_status(&db).unwrap().pending, 0);
+}
+
+#[test]
 fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
     let f = Fixture::new();
     let source = f.destination.join("stage.bin");
