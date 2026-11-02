@@ -54,6 +54,10 @@ The diagnostic code existed only in a temporary source copy, behind a non-defaul
 
 A separate uninstrumented build used another new test home and unique identifier. Its actual SQLite library contained zero characters, assets, and file-ledger entries. The native WebArea exposed Settings, the privacy warning, and the consent checkbox; export was disabled before consent. The external AX driver's attempt to press the checkbox found no matching element, so no folder was selected and no export completed. This is an incomplete automation step, not an established product defect. The exact test executable was verified before its process was stopped; no waiting test window remains. No new screenshot-based visual acceptance was performed.
 
+## Windows implementation gate — 2026-11-02
+
+Windows media and backup development is in progress; current unsupported behavior is not the intended final platform scope. The existing pull request automatically ran the shared CI matrix for backup baseline `c736806`: macOS passed, while Windows stopped at Clippy with unreachable-code and unused-item errors in platform-gated Rust code. A subsequent run exposed a frontend focus-test race; test-only correction `68ccf15` passed the frontend checks on both platforms, with macOS fully passing and Windows reaching the same Rust Clippy gate. Windows backend tests and desktop building have not run past that gate. This is not Windows acceptance. The implementation targets Windows 10/11 x64 on local fixed NTFS, with synthetic runner tests first; WebView2 desktop acceptance remains a separate gate.
+
 ## Remaining acceptance gate
 
 In a controllable native desktop session, perform this entire flow against synthetic data:

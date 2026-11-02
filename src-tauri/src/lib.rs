@@ -8,6 +8,10 @@ mod media;
 mod media_decode;
 mod media_store;
 mod models;
+#[cfg(all(test, windows))]
+mod platform_fs;
+#[cfg(all(test, windows))]
+mod windows_tests;
 
 use database::Database;
 use tauri::Manager;

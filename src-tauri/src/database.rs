@@ -218,17 +218,20 @@ impl Database {
         Ok((connection, source))
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn library_root(&self) -> Result<&Path, AppError> {
         self.path
             .parent()
             .ok_or(AppError::Backup(crate::error::BackupError::Integrity))
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn existing_media_store(&self) -> Result<crate::media_store::Store, AppError> {
         crate::media_store::Store::open_existing(self.library_root()?)
     }
 
     /// Exact expected tables, indexes, and triggers, without trusting a version stamp alone.
+    #[cfg(target_os = "macos")]
     pub(crate) fn backup_schema_matches(connection: &Connection) -> Result<bool, AppError> {
         let mut reference = Connection::open_in_memory()?;
         migrate(&mut reference)?;

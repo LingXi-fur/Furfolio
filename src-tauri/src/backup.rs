@@ -4,10 +4,9 @@ use crate::{
     error::{AppError, BackupError},
     models::BackupExportResult,
 };
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::time::{Duration, Instant};
 #[cfg(target_os = "macos")]
 use {
     rusqlite::{
@@ -18,9 +17,10 @@ use {
     std::{collections::BTreeSet, io::Write},
 };
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 type PhaseHook = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
+#[cfg(target_os = "macos")]
 #[derive(Clone)]
 pub(crate) struct BackupOptions {
     pub database_limit: u64,
@@ -45,6 +45,11 @@ pub(crate) struct BackupOptions {
     #[cfg(test)]
     pub backup_more_steps: u64,
 }
+#[cfg(not(target_os = "macos"))]
+#[derive(Clone, Default)]
+pub(crate) struct BackupOptions {}
+
+#[cfg(target_os = "macos")]
 impl Default for BackupOptions {
     fn default() -> Self {
         Self {
@@ -72,7 +77,7 @@ impl Default for BackupOptions {
         }
     }
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fault {
     NoSpace,
@@ -86,6 +91,7 @@ pub(crate) enum Fault {
     CleanupIdentity,
 }
 
+#[cfg(target_os = "macos")]
 impl BackupOptions {
     pub(crate) fn check(&self) -> Result<(), AppError> {
         if self.started.elapsed() >= self.timeout {
@@ -141,6 +147,7 @@ impl BackupOptions {
 fn failure(error: BackupError) -> AppError {
     AppError::Backup(error)
 }
+#[cfg(target_os = "macos")]
 pub(crate) fn output_error(error: std::io::Error) -> AppError {
     #[cfg(unix)]
     if error.raw_os_error() == Some(libc::ENOSPC) {
@@ -174,7 +181,7 @@ pub(crate) fn export_with_picker(
     export_with_options(db, selected.as_deref(), options)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 pub(crate) fn export_selected(
     db: &Database,
     selected: Option<&Path>,
@@ -187,7 +194,7 @@ pub(crate) fn export_with_options(
     selected: Option<&Path>,
     options: BackupOptions,
 ) -> Result<Option<BackupExportResult>, AppError> {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     if options.unsupported {
         return Err(failure(BackupError::Unsupported));
     }

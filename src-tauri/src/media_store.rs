@@ -2,11 +2,9 @@
 use crate::error::AppError;
 use cap_std::fs::Dir;
 use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::{Read, Write},
-    path::Path,
-};
+#[cfg(unix)]
+use std::io::Read;
+use std::{fs::File, io::Write, path::Path};
 
 pub const MAX_SOURCE: u64 = 20 * 1024 * 1024;
 pub fn hash(bytes: &[u8]) -> String {
@@ -21,6 +19,7 @@ pub struct Store {
 }
 impl Store {
     /// Export must not create a missing media directory or repair any source entry.
+    #[cfg(target_os = "macos")]
     pub(crate) fn open_existing(root: &Path) -> Result<Self, AppError> {
         let parent = private_directory(root, false)?;
         #[cfg(unix)]
@@ -46,6 +45,7 @@ impl Store {
 
     /// One no-follow fd, fixed buffer, exact length plus EOF, hash and post-read identity.
     /// The callback enforces the caller's soft deadline between bounded IO operations.
+    #[cfg(target_os = "macos")]
     pub(crate) fn copy_verified(
         &self,
         name: &str,
@@ -194,12 +194,12 @@ impl Store {
                 if unsafe { libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0) } != 0 {
                     return Err(std::io::Error::last_os_error().into());
                 }
+                self.sync()?;
             }
             #[cfg(not(unix))]
             {
                 return Err(unsafe_entry().into());
             }
-            self.sync()?;
         }
         Ok(())
     }
@@ -379,6 +379,11 @@ pub fn read_source(path: &Path) -> Result<Vec<u8>, AppError> {
         Err(unsafe_entry().into())
     }
 }
+#[cfg(not(unix))]
+fn read_regular(_file: File, _limit: u64) -> Result<Vec<u8>, AppError> {
+    Err(unsafe_entry().into())
+}
+#[cfg(unix)]
 fn read_regular(file: File, limit: u64) -> Result<Vec<u8>, AppError> {
     let meta = file.metadata()?;
     if !meta.is_file() {
