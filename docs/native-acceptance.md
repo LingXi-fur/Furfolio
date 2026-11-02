@@ -69,6 +69,8 @@ Windows media and backup development is in progress; the feature branch is not a
 | `324fa9b` | Frontend, formatting, and strict Clippy passed on Windows; tests then failed: 18 passed, 26 failed. Nearly all failures were `Access is denied` while the test fixture created its synthetic library root through the new private-directory path, including the hostile-ACE fixture itself. Root cause not established |
 | `571b7ab` | Stopped at Windows Clippy: the new test-only diagnostic helper had a borrow error. Not a product-code failure |
 | `2f28f35` | Frontend, formatting, and strict Clippy passed; the staged diagnostics attributed every failure to the first creation stage: `token_sid` succeeds and `Directory::open(create)` itself returns `Access is denied`, before any security-descriptor readback. Root cause not yet fixed; creation parameters are under audit |
+| `f1a7e1a` | Stopped at Windows Clippy: the new test-only access constant was unused in the non-test library build |
+| `2488cbf` | Frontend, formatting, and strict Clippy passed; the denial persists at the same first-creation stage after the handle-upgrade fix, so that hypothesis was disproven. Creation parameters are still under audit |
 
 The corresponding macOS CI jobs passed. That does not validate Windows-only code. No successful Windows media lifecycle, backup, or desktop build is claimed; WebView2 desktop acceptance is also separate. The earlier hypothesis that numeric SID strings are invalid SDDL was withdrawn: SDDL permits numeric SID strings, and the observed `AccessDenied` requires further diagnosis.
 

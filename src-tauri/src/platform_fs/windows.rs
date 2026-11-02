@@ -973,6 +973,16 @@ pub(crate) fn diagnostic_stage() -> String {
         ));
     }
     stage(&mut report, "token_sid", current_sid_bytes().map(|_| ()));
+    // Control arm: the same parent path and name through the plain Win32 API. A
+    // success here while our NtCreateFile arm fails isolates the failure to this
+    // call's parameters (SD/access/options), not to the runner's %TEMP% ACL.
+    stage(&mut report, "std_create_dir", std::fs::create_dir(&root));
+    let _ = std::fs::remove_dir(&root);
+    stage(
+        &mut report,
+        "std_dir_exists_parent",
+        std::fs::read_dir(std::env::temp_dir()).map(|_| ()),
+    );
     match Directory::open(&root, true) {
         Ok(directory) => {
             report.push("walk_create: ok".to_owned());
@@ -997,6 +1007,52 @@ pub(crate) fn diagnostic_stage() -> String {
     }
     let _ = std::fs::remove_dir_all(&root);
     report.join("\n")
+}
+
+/// Raw single NtCreateFile probe with the exact parameters Directory::open uses,
+/// reported verbatim so a runner denial can be attributed to one argument.
+#[cfg(test)]
+pub(crate) fn diagnostic_ntstatus() -> String {
+    let root = std::env::temp_dir().join(format!("furfolio-nt-{}", uuid::Uuid::new_v4()));
+    let mut out = Vec::new();
+    out.push(format!("target: {}", root.display()));
+    let probe = |label: &str, private: bool| -> io::Result<()> {
+        let (drive, names) = path_components(&root)?;
+        let mut names = names;
+        let name = names.pop().ok_or_else(unsafe_entry)?;
+        let mut file = Directory::walk(
+            &names.iter().fold(std::path::PathBuf::from(format!(
+                "{}{}:",
+                std::path::MAIN_SEPARATOR,
+                drive as char
+            ))),
+            false,
+            false,
+        )?
+        .file()
+        .try_clone()?;
+        let status = unsafe {
+            let result = open_at(
+                &file,
+                &name,
+                if private { WRITE_DIR } else { READ_DIR },
+                FILE_OPEN_IF,
+                true,
+                private,
+            );
+            std::mem::drop(&mut file);
+            result
+        };
+        let _ = std::fs::remove_dir(&root);
+        match status {
+            Ok(()) => out.push(format!("{label}: ok")),
+            Err(e) => out.push(format!("{label}: {e:?}")),
+        }
+        Ok(())
+    };
+    let _ = probe("nt_create_private", true);
+    let _ = probe("nt_create_public", false);
+    out.join("\n")
 }
 
 #[cfg(test)]
@@ -1026,7 +1082,8 @@ mod security_tests {
     #[test]
     fn windows_runner_denial_stage_is_attributed() {
         let report = diagnostic_stage();
-        panic!("runner diagnostics:\n{report}");
+        let raw = diagnostic_ntstatus();
+        panic!("runner diagnostics:\n{report}\n{raw}");
     }
 
     #[test]
