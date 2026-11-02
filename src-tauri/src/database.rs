@@ -344,15 +344,6 @@ fn lock_initialization(path: &Path) -> Result<crate::media_store::LibraryLock, A
             Err(AppError::MediaBusy) if started.elapsed() < Duration::from_secs(5) => {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Err(AppError::Io(e)) => {
-                // Distinguish a five-second contention timeout from an immediate
-                // structural failure; the label carries no paths. Temporary until
-                // the runner-side contention stage is identified.
-                return Err(AppError::Io(std::io::Error::other(format!(
-                    "lock:init:{}",
-                    e
-                ))));
-            }
             Err(error) => return Err(error),
         }
     }

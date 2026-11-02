@@ -879,16 +879,10 @@ pub(crate) struct LibraryLock {
     _file: File,
 }
 pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::AppError> {
-    // Runner attribution aid: which lock stage fails. Labels carry no paths and are
-    // removed once the runner-side denial stage is identified.
-    let attributed = |name: &str, error: io::Error| {
-        crate::error::AppError::from(io::Error::other(format!("lock:{name}:{error}")))
-    };
     // The lock file is created private and verified below; the existing parent chain
     // (for example the OS temporary directory that contains a legacy test library) is
     // only traversed, so it needs the ancestor rules, not the private-object rules.
-    let root = Directory::walk(path.parent().ok_or_else(unsafe_entry)?, false, false)
-        .map_err(|e| attributed("parent", e))?;
+    let root = Directory::walk(path.parent().ok_or_else(unsafe_entry)?, false, false)?;
     let name = path
         .with_extension("media-lock")
         .file_name()
@@ -902,9 +896,8 @@ pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::App
         FILE_OPEN_IF,
         false,
         true,
-    )
-    .map_err(|e| attributed("open_lock", e))?;
-    verify_private(&file).map_err(|e| attributed("verify_lock", e))?;
+    )?;
+    verify_private(&file)?;
     let mut overlapped = unsafe { std::mem::zeroed::<OVERLAPPED>() };
     // SAFETY: live synchronous file, zero offset, fixed one-byte range, no wait.
     if unsafe {
@@ -922,7 +915,7 @@ pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::App
         return Err(if e.raw_os_error() == Some(33) {
             crate::error::AppError::MediaBusy
         } else {
-            io::Error::other(format!("lock:lockfileex:{e}")).into()
+            e.into()
         });
     }
     Ok(LibraryLock {
