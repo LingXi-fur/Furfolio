@@ -51,8 +51,6 @@ const READ_DIR: u32 = READ_CONTROL | SYNCHRONIZE | 0x81 | 0x20;
 const WRITE_DIR: u32 = READ_DIR | 0x6;
 const READ_FILE: u32 = READ_CONTROL | SYNCHRONIZE | 0x89;
 const WRITE_FILE: u32 = READ_FILE | 0x116 | DELETE;
-#[cfg(test)]
-const WRITE_DAC: u32 = 0x0004_0000;
 const REPARSE: u32 = 0x400;
 const DIRECTORY: u32 = 0x10;
 const FILE_OPEN: u32 = 1;
@@ -634,55 +632,6 @@ fn open_at(
     }
     Ok(file)
 }
-/// Reopen the directory object itself (no name component) with a different access
-/// mask, relative to an existing handle. Test-only: the dangerous-ACE fixture uses
-/// it for a WRITE_DAC upgrade after the runner denied every ReOpenFile call.
-#[cfg(test)]
-fn open_self(parent: &File, access: u32) -> io::Result<File> {
-    let mut name = UnicodeString {
-        length: 0,
-        maximum_length: 0,
-        buffer: null_mut(),
-    };
-    let attributes = ObjectAttributes {
-        length: size_of::<ObjectAttributes>() as u32,
-        root: raw(parent),
-        name: &mut name,
-        attributes: 0x40,
-        security: null_mut(),
-        qos: null_mut(),
-    };
-    let mut handle = null_mut();
-    let mut status = IoStatus {
-        status: 0,
-        information: 0,
-    };
-    // SAFETY: an empty relative name addresses the object the root handle refers to;
-    // all buffers are stack- or handle-backed and live through this synchronous call.
-    let result = unsafe {
-        NtCreateFile(
-            &mut handle,
-            access,
-            &attributes,
-            &mut status,
-            null(),
-            0x80,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            FILE_OPEN,
-            FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE,
-            null(),
-            0,
-        )
-    };
-    if result < 0 {
-        return Err(status_error(result));
-    }
-    let file = File::from(unsafe { OwnedHandle::from_raw_handle(handle) });
-    if !file_state(&file)?.directory {
-        return Err(unsafe_entry());
-    }
-    Ok(file)
-}
 fn volume(file: &File, drive: u8) -> io::Result<()> {
     let root = [u16::from(drive), b':' as u16, b'\\' as u16, 0];
     if unsafe { GetDriveTypeW(root.as_ptr()) } != 3 {
@@ -994,9 +943,9 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
 mod security_tests {
     use super::*;
     use windows_sys::Win32::Security::{
-        Authorization::SetSecurityInfo, GetSecurityDescriptorDacl, GetSecurityDescriptorGroup,
-        GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
-        PROTECTED_DACL_SECURITY_INFORMATION,
+        Authorization::SetNamedSecurityInfoW, GetSecurityDescriptorDacl,
+        GetSecurityDescriptorGroup, GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE,
+        INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION,
     };
 
     fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
@@ -1154,14 +1103,15 @@ mod security_tests {
             );
         }
         // Only this newly created synthetic parent's DACL is changed, never an ancestor.
-        // The runner denied every ReOpenFile call, so request the WRITE_DAC handle with
-        // NtCreateFile on the held READ_DIR ancestor instead; the parent was created by
-        // this process and its descriptor allows the current user full control. An empty
-        // relative name addresses the root-directory object itself.
-        let writable = open_self(&parent.file, WRITE_DAC).expect("open synthetic parent WRITE_DAC");
+        // The runner denied every ReOpenFile call, and NtCreateFile rejects a nameless
+        // relative open, so set the DACL by path: SetNamedSecurityInfoW opens the
+        // WRITE_DAC handle itself, and this path is a synthetic directory this test
+        // created inside the OS temporary directory.
+        let mut path: Vec<u16> = root.0.as_os_str().encode_wide().collect();
+        path.push(0);
         let result = unsafe {
-            SetSecurityInfo(
-                raw(&writable),
+            SetNamedSecurityInfoW(
+                path.as_mut_ptr(),
                 SE_FILE_OBJECT,
                 DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
                 null_mut(),
@@ -1174,7 +1124,6 @@ mod security_tests {
             result, 0,
             "install dangerous inherit-only ACE on synthetic parent"
         );
-        drop(writable);
         let audit = security_summary(&parent.file).unwrap();
         assert_eq!(audit.aces.len(), 4);
         assert!(audit
