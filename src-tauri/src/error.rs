@@ -9,6 +9,26 @@ pub struct CommandError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub applied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory_name: Option<String>,
+}
+
+/// Export failures deliberately carry no source path, SQL or OS diagnostic.
+#[derive(Debug)]
+pub(crate) enum BackupError {
+    Busy,
+    Pending,
+    Integrity,
+    Limit,
+    Timeout,
+    NoSpace,
+    Destination,
+    Unsupported,
+    Failed,
+    DurabilityUncertain(String),
+    CleanupPending(String),
 }
 
 #[derive(Debug)]
@@ -22,6 +42,7 @@ pub enum AppError {
     UnsupportedDatabase(i64),
     Database(SqliteError),
     Io(std::io::Error),
+    Backup(BackupError),
 }
 
 impl Display for AppError {
@@ -74,6 +95,19 @@ impl CommandError {
                     "This library was created by a newer Furfolio version",
                 )
             }
+            AppError::Backup(error) => match error {
+                BackupError::Busy => ("backupBusy", "Another library or media export operation is in progress"),
+                BackupError::Pending => ("backupPending", "Managed media cleanup must finish before exporting"),
+                BackupError::Integrity => ("backupIntegrity", "The library could not pass backup integrity checks"),
+                BackupError::Limit => ("backupLimit", "The library exceeds the supported backup limits"),
+                BackupError::Timeout => ("backupTimeout", "The backup exceeded its supported time limit"),
+                BackupError::NoSpace => ("backupNoSpace", "The destination has insufficient space for this backup"),
+                BackupError::Destination => ("backupDestination", "Select a safe existing backup destination outside this library"),
+                BackupError::Unsupported => ("backupUnsupported", "Safe backup export is supported only on macOS"),
+                BackupError::Failed => ("backupFailed", "The backup could not be exported"),
+                BackupError::DurabilityUncertain(_) => ("backupDurabilityUncertain", "The backup was published but its durability could not be confirmed. Keep and verify the published backup; do not blindly retry"),
+                BackupError::CleanupPending(_) => ("backupCleanupPending", "An incomplete backup remains and needs safe manual inspection"),
+            },
             AppError::Database(_) | AppError::Io(_) => (
                 "storageError",
                 "Furfolio could not access the local library",
@@ -83,6 +117,14 @@ impl CommandError {
             code: code.into(),
             message: message.into(),
             applied: matches!(error, AppError::CleanupPending { applied: true }).then_some(true),
+            published: matches!(error, AppError::Backup(BackupError::DurabilityUncertain(_)))
+                .then_some(true),
+            directory_name: match error {
+                AppError::Backup(
+                    BackupError::DurabilityUncertain(name) | BackupError::CleanupPending(name),
+                ) => Some(name.clone()),
+                _ => None,
+            },
         }
     }
 }

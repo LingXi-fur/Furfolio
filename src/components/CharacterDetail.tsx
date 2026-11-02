@@ -97,10 +97,8 @@ export function CharacterDetail({ character, plateIndex, deleting, mediaBusy, er
         description={t("detail.deleteConfirmation", { name: character.name })}
         confirming={deleting}
         error={error}
-        onCancel={() => {
-          setConfirmingDelete(false);
-          requestAnimationFrame(() => deleteButtonRef.current?.focus());
-        }}
+        returnFocusRef={deleteButtonRef}
+        onCancel={() => setConfirmingDelete(false)}
         onConfirm={() => void onDelete()}
       />
     </main>

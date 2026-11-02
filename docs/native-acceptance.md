@@ -4,7 +4,7 @@
 
 **Partial acceptance only. The native media end-to-end flow remains incomplete.**
 
-Tested current, uncommitted gallery implementation on macOS with a new local test home and a unique Tauri identifier. No production library was used. No commit, push, packaging, or publication was performed.
+Tested the gallery implementation on macOS with a new local test home and a unique Tauri identifier. No production library was used. The gallery was subsequently committed and pushed as `aa35a52`; the acceptance runs did not package or publish an application.
 
 | Check | Result |
 | --- | --- |
@@ -50,6 +50,10 @@ The diagnostic code existed only in a temporary source copy, behind a non-defaul
 5. If diagnostic code is needed, keep it in a new source copy, not the product. Validate identifier and test-data root before database setup. Observe bounded stage/error/DOM summaries without paths, full DOM text, arbitrary evaluation endpoints, or raw I/O errors. Rebuild and repeat acceptance without diagnostics afterward.
 6. Stop on permission refusal, keychain prompts, isolation mismatch, or unreliable targeting. Do not report an unexecuted step as passed, and do not substitute browser mock IPC for the native chain.
 
+## Backup desktop smoke check — 2026-11-02
+
+A separate uninstrumented build used another new test home and unique identifier. Its actual SQLite library contained zero characters, assets, and file-ledger entries. The native WebArea exposed Settings, the privacy warning, and the consent checkbox; export was disabled before consent. The external AX driver's attempt to press the checkbox found no matching element, so no folder was selected and no export completed. This is an incomplete automation step, not an established product defect. The exact test executable was verified before its process was stopped; no waiting test window remains. No new screenshot-based visual acceptance was performed.
+
 ## Remaining acceptance gate
 
 In a controllable native desktop session, perform this entire flow against synthetic data:
@@ -61,4 +65,4 @@ In a controllable native desktop session, perform this entire flow against synth
 5. Cancel then confirm image removal; separately delete a character that still owns an image.
 6. Check only the test database using read-only SQLite summaries. Verify asset/ledger ownership, hashes and sizes of original/preview files, foreign keys, cleanup state, and actual removal of the authorized files. Verify source images remain unchanged.
 
-Directory-backup export is being developed separately; it has not completed integration or native acceptance. Restore remains unimplemented. Keep using non-critical data until the remaining native flow and backup/restore are complete. Windows media remains unsupported and actual Windows execution is unvalidated; Linux remains unvalidated. The documented JPEG recovery behavior and decoder-memory limits are unchanged.
+Directory-backup export is implemented and integrated separately. Its real temporary-library backend tests, frontend mock-IPC tests, and offline locked Tauri build pass; the native folder-picker-to-export desktop flow has not been accepted. See [backup format and limits](backup-export.md). Restore remains unimplemented. Keep using non-critical data until the remaining native flow and backup/restore are complete. Windows media remains unsupported and actual Windows execution is unvalidated; Linux remains unvalidated. The documented JPEG recovery behavior and decoder-memory limits are unchanged.

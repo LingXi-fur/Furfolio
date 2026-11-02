@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { useModalDialog } from "./useModalDialog";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -8,29 +9,19 @@ interface ConfirmDialogProps {
   confirming: boolean;
   confirmLabel?: string;
   error?: string | null;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
-export function ConfirmDialog({ open, title, description, confirming, confirmLabel, error, onCancel, onConfirm }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, description, confirming, confirmLabel, error, returnFocusRef, onCancel, onConfirm }: ConfirmDialogProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !open) return;
-
-    if (typeof dialog.showModal === "function") dialog.showModal();
-    else dialog.setAttribute("open", "");
-    cancelRef.current?.focus();
-
-    return () => {
-      if (typeof dialog.close === "function" && dialog.open) dialog.close();
-    };
-  }, [open]);
+  useModalDialog(open, dialogRef, cancelRef, returnFocusRef);
 
   if (!open) return null;
 

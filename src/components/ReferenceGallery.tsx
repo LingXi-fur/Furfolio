@@ -225,7 +225,7 @@ function GallerySession({ characterId, busy: externalBusy = false, disabled = fa
           </dl>
           <div className="reference-actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => { setArtistName(selected.artistName ?? ""); setSourceUrl(selected.sourceUrl ?? ""); setNotes(selected.notes ?? ""); setEditing(true); setError(null); }}>{t("gallery.edit")}</button><button ref={removeButton} className="danger-link" type="button" disabled={busy} onClick={() => { setError(null); setConfirming(true); }}>{t("gallery.remove")}</button></div>
         </>}
-        <ConfirmDialog open={confirming} title={t("gallery.removeTitle", { name: selected.originalFilename })} description={t("gallery.removeDescription")} confirmLabel={t("gallery.remove")} confirming={operation === "delete"} error={error ? t(error) : null} onCancel={() => { setConfirming(false); setError(null); requestAnimationFrame(() => removeButton.current?.focus()); }} onConfirm={() => void removeReference()} />
+        <ConfirmDialog open={confirming} title={t("gallery.removeTitle", { name: selected.originalFilename })} description={t("gallery.removeDescription")} confirmLabel={t("gallery.remove")} confirming={operation === "delete"} error={error ? t(error) : null} returnFocusRef={removeButton} onCancel={() => { setConfirming(false); setError(null); }} onConfirm={() => void removeReference()} />
       </>}
     </section>
   );

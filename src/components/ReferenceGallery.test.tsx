@@ -115,6 +115,21 @@ describe("ReferenceGallery", () => {
     expect(await screen.findByText("No reference images yet.")).toBeInTheDocument();
   });
 
+  it.each(["cancel button", "Escape"])("returns image deletion focus to its trigger after %s even when another control was active", async (dismissal) => {
+    const user = userEvent.setup();
+    data.listAssets.mockResolvedValue([asset]);
+    render(<ReferenceGallery {...props()} />);
+    const trigger = await screen.findByRole("button", { name: "Remove image" });
+    screen.getByRole("button", { name: "Edit image details" }).focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Remove reference.png?" });
+    if (dismissal === "cancel button") await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    else fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(data.deleteAsset).not.toHaveBeenCalled();
+  });
+
   it("removes committed deletions even when file cleanup is pending", async () => {
     const user = userEvent.setup(); data.listAssets.mockResolvedValue([asset]);
     data.deleteAsset.mockRejectedValue({ code: "cleanupPending", applied: true, message: "fixed" });

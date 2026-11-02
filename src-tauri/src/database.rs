@@ -144,6 +144,7 @@ CREATE INDEX characters_name_index ON characters(name COLLATE NOCASE);
 pub struct Database {
     path: PathBuf,
     media_mutex: Arc<Mutex<()>>,
+    export_mutex: Arc<Mutex<()>>,
     media_supported: bool,
 }
 
@@ -165,6 +166,7 @@ impl Database {
         let database = Self {
             path: app_data_dir.join("furfolio.sqlite3"),
             media_mutex: Arc::new(Mutex::new(())),
+            export_mutex: Arc::new(Mutex::new(())),
             media_supported,
         };
         let mut connection = database.open()?;
@@ -186,11 +188,69 @@ impl Database {
         let database = Self {
             path,
             media_mutex: Arc::new(Mutex::new(())),
+            export_mutex: Arc::new(Mutex::new(())),
             media_supported: cfg!(unix),
         };
         let mut connection = database.open()?;
         migrate(&mut connection)?;
         Ok(database)
+    }
+
+    pub(crate) fn lock_export(&self) -> Result<MutexGuard<'_, ()>, AppError> {
+        self.export_mutex
+            .try_lock()
+            .map_err(|_| AppError::Backup(crate::error::BackupError::Busy))
+    }
+
+    /// Never create, migrate, checkpoint, or configure WAL on the export source.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn open_backup_source(
+        &self,
+    ) -> Result<(Connection, crate::media_store::SourceDatabase), AppError> {
+        let source = crate::media_store::SourceDatabase::open(self.library_root()?)?;
+        let connection = Connection::open_with_flags(
+            &self.path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        connection.busy_timeout(Duration::ZERO)?;
+        connection.pragma_update(None, "query_only", true)?;
+        source.verify(&connection)?;
+        Ok((connection, source))
+    }
+
+    pub(crate) fn library_root(&self) -> Result<&Path, AppError> {
+        self.path
+            .parent()
+            .ok_or(AppError::Backup(crate::error::BackupError::Integrity))
+    }
+
+    pub(crate) fn existing_media_store(&self) -> Result<crate::media_store::Store, AppError> {
+        crate::media_store::Store::open_existing(self.library_root()?)
+    }
+
+    /// Exact expected tables, indexes, and triggers, without trusting a version stamp alone.
+    pub(crate) fn backup_schema_matches(connection: &Connection) -> Result<bool, AppError> {
+        let mut reference = Connection::open_in_memory()?;
+        migrate(&mut reference)?;
+        let mut expected = reference
+            .prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name")?;
+        let mut actual = connection
+            .prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name")?;
+        let mut expected_rows = expected.query([])?;
+        let mut actual_rows = actual.query([])?;
+        // Iterate only the fixed known schema plus one row: never collect attacker-controlled
+        // schema text or execute a business view before the schema has been authenticated.
+        while let Some(expected) = expected_rows.next()? {
+            let Some(actual) = actual_rows.next()? else {
+                return Ok(false);
+            };
+            for column in 0..4 {
+                if actual.get_ref(column)? != expected.get_ref(column)? {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(actual_rows.next()?.is_none())
     }
 
     pub fn open(&self) -> Result<Connection, AppError> {

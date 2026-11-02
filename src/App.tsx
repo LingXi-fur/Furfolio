@@ -2,6 +2,7 @@ import { flushSync } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./App.css";
+import { BackupSettings } from "./components/BackupSettings";
 import { CharacterDetail } from "./components/CharacterDetail";
 import { CharacterForm } from "./components/CharacterForm";
 import { LibraryView } from "./components/LibraryView";
@@ -107,6 +108,8 @@ function App() {
   const { i18n, t } = useTranslation();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [view, setView] = useState<View>({ name: "library" });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [selected, setSelected] = useState<Character | null>(null);
   const [loading, setLoading] = useState(true);
@@ -437,10 +440,12 @@ function App() {
             <LibraryIcon /><span>{t("navigation.library")}</span>
           </button>
           <button
+            ref={settingsButtonRef}
             className="navigation-link"
             type="button"
-            disabled
-            title={t("comingSoon")}
+            onClick={() => { if (!document.querySelector("dialog[open]")) setSettingsOpen(true); }}
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
             aria-label={t("navigation.settings")}
           >
             <SettingsIcon /><span>{t("navigation.settings")}</span>
@@ -504,6 +509,7 @@ function App() {
         {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} mediaBusy={busyCharacters.has(selected.id)} onChanged={(id) => void refreshMediaCharacter(id)} onMediaBusyChange={changeMediaBusy} onCleanupPending={markCleanupPending} onCheckCleanup={() => void checkCleanup()} error={error ?? (mediaDetailError?.characterId === selected.id ? mediaDetailError.message : null)} onBack={() => showLibrary(libraryFocusTarget ?? { characterId: selected.id, origin: "library" })} onEdit={() => navigate({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
         {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => navigate({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
       </div>
+      {settingsOpen && <BackupSettings returnFocusRef={settingsButtonRef} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

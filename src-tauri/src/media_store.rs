@@ -20,6 +20,110 @@ pub struct Store {
     dir: Dir,
 }
 impl Store {
+    /// Export must not create a missing media directory or repair any source entry.
+    pub(crate) fn open_existing(root: &Path) -> Result<Self, AppError> {
+        let parent = private_directory(root, false)?;
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let directory = open_at(
+                parent.as_raw_fd(),
+                "media",
+                libc::O_RDONLY | libc::O_DIRECTORY,
+                0,
+            )?;
+            verify_private_directory(&directory)?;
+            Ok(Self {
+                dir: Dir::from_std_file(directory),
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = parent;
+            Err(unsafe_entry().into())
+        }
+    }
+
+    /// One no-follow fd, fixed buffer, exact length plus EOF, hash and post-read identity.
+    /// The callback enforces the caller's soft deadline between bounded IO operations.
+    pub(crate) fn copy_verified(
+        &self,
+        name: &str,
+        expected: &str,
+        size: u64,
+        output: &mut impl Write,
+        mut check: impl FnMut() -> Result<(), AppError>,
+    ) -> Result<(), AppError> {
+        let invalid = || AppError::Backup(crate::error::BackupError::Integrity);
+        valid_name(name).map_err(|_| invalid())?;
+        if size > MAX_SOURCE {
+            return Err(invalid());
+        }
+        let mut file = self.open_file(name, false).map_err(|_| invalid())?;
+        let before = file.metadata().map_err(|_| invalid())?;
+        if !before.is_file() || before.len() != size {
+            return Err(invalid());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if before.nlink() != 1 {
+                return Err(invalid());
+            }
+        }
+        let mut buffer = [0u8; 64 * 1024];
+        let mut remaining = size;
+        let mut digest = Sha256::new();
+        while remaining > 0 {
+            check()?;
+            let length =
+                usize::try_from(remaining.min(buffer.len() as u64)).map_err(|_| invalid())?;
+            let read = file.read(&mut buffer[..length]).map_err(|_| invalid())?;
+            if read == 0 {
+                return Err(invalid());
+            }
+            digest.update(&buffer[..read]);
+            output
+                .write_all(&buffer[..read])
+                .map_err(crate::backup::output_error)?;
+            remaining -= read as u64;
+        }
+        check()?;
+        if file.read(&mut buffer[..1]).map_err(|_| invalid())? != 0 {
+            return Err(invalid());
+        }
+        let after = file.metadata().map_err(|_| invalid())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if (
+                before.dev(),
+                before.ino(),
+                before.len(),
+                before.mtime(),
+                before.mtime_nsec(),
+                before.ctime(),
+                before.ctime_nsec(),
+                before.nlink(),
+            ) != (
+                after.dev(),
+                after.ino(),
+                after.len(),
+                after.mtime(),
+                after.mtime_nsec(),
+                after.ctime(),
+                after.ctime_nsec(),
+                after.nlink(),
+            ) {
+                return Err(invalid());
+            }
+        }
+        if !after.is_file() || format!("{:x}", digest.finalize()) != expected {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
     pub fn open(root: &Path) -> Result<Self, AppError> {
         let parent = private_directory(root, false)?;
         #[cfg(unix)]
@@ -163,6 +267,68 @@ impl Store {
             let _ = (from, to);
             Err(unsafe_entry().into())
         }
+    }
+}
+
+/// Capture a no-follow source database descriptor alongside SQLite's own NOFOLLOW open.
+/// The file-control check later verifies that SQLite's opened inode still names this entry.
+#[cfg(target_os = "macos")]
+pub(crate) struct SourceDatabase {
+    parent: Dir,
+    file: File,
+}
+#[cfg(target_os = "macos")]
+impl SourceDatabase {
+    pub(crate) fn open(root: &Path) -> Result<Self, AppError> {
+        use std::{os::fd::AsRawFd, os::unix::fs::MetadataExt};
+        let parent = private_directory(root, false)?;
+        let file = open_at(
+            parent.as_raw_fd(),
+            "furfolio.sqlite3",
+            libc::O_RDONLY | libc::O_NONBLOCK,
+            0,
+        )?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != unsafe { libc::geteuid() }
+        {
+            return Err(unsafe_entry().into());
+        }
+        Ok(Self { parent, file })
+    }
+    pub(crate) fn verify(&self, connection: &rusqlite::Connection) -> Result<(), AppError> {
+        use std::{os::fd::AsRawFd, os::unix::fs::MetadataExt};
+        let named = open_at(
+            self.parent.as_raw_fd(),
+            "furfolio.sqlite3",
+            libc::O_RDONLY | libc::O_NONBLOCK,
+            0,
+        )?;
+        let before = self.file.metadata()?;
+        let current = named.metadata()?;
+        if !current.is_file()
+            || current.nlink() != 1
+            || (before.dev(), before.ino()) != (current.dev(), current.ino())
+        {
+            return Err(unsafe_entry().into());
+        }
+        let mut moved: libc::c_int = 0;
+        // SAFETY: connection owns the live SQLite handle, main is a static C string,
+        // and HAS_MOVED writes one c_int. SQLite's unix VFS compares its actual fd's
+        // inode to the named entry, rather than trusting our pre-open path check.
+        let result = unsafe {
+            rusqlite::ffi::sqlite3_file_control(
+                connection.handle(),
+                c"main".as_ptr(),
+                rusqlite::ffi::SQLITE_FCNTL_HAS_MOVED,
+                (&mut moved as *mut libc::c_int).cast(),
+            )
+        };
+        if result != rusqlite::ffi::SQLITE_OK || moved != 0 {
+            return Err(unsafe_entry().into());
+        }
+        Ok(())
     }
 }
 

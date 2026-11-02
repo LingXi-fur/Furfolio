@@ -1,3 +1,5 @@
+mod backup;
+mod backup_store;
 mod characters;
 mod commands;
 mod database;
@@ -33,6 +35,7 @@ pub fn run() {
             commands::delete_asset,
             commands::media_cleanup_status,
             commands::retry_media_cleanup,
+            commands::export_library_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Furfolio");

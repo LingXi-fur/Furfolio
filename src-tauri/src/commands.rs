@@ -133,6 +133,32 @@ pub async fn media_cleanup_status(
     worker(move || crate::media::media_cleanup_status(&database)).await
 }
 
+/// No JS-supplied destination, SQL, or source path is accepted by this command.
+#[tauri::command]
+pub async fn export_library_backup(
+    app: tauri::AppHandle,
+    database: State<'_, Database>,
+) -> Result<Option<crate::models::BackupExportResult>, CommandError> {
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::backup::export_with_picker(&database, || {
+            app.dialog()
+                .file()
+                .blocking_pick_folder()
+                .map(|path| path.into_path())
+                .transpose()
+                .map_err(|_| crate::error::AppError::Backup(crate::error::BackupError::Destination))
+        })
+    })
+    .await
+    .map_err(|_| {
+        CommandError::from(crate::error::AppError::Backup(
+            crate::error::BackupError::Failed,
+        ))
+    })?
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn retry_media_cleanup(
     database: State<'_, Database>,
