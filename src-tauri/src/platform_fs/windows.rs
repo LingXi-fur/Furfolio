@@ -884,7 +884,10 @@ pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::App
     let attributed = |name: &str, error: io::Error| {
         crate::error::AppError::from(io::Error::other(format!("lock:{name}:{error}")))
     };
-    let root = Directory::open(path.parent().ok_or_else(unsafe_entry)?, false)
+    // The lock file is created private and verified below; the existing parent chain
+    // (for example the OS temporary directory that contains a legacy test library) is
+    // only traversed, so it needs the ancestor rules, not the private-object rules.
+    let root = Directory::walk(path.parent().ok_or_else(unsafe_entry)?, false, false)
         .map_err(|e| attributed("parent", e))?;
     let name = path
         .with_extension("media-lock")
