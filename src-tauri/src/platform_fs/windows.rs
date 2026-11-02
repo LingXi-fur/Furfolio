@@ -51,6 +51,7 @@ const READ_DIR: u32 = READ_CONTROL | SYNCHRONIZE | 0x81 | 0x20;
 const WRITE_DIR: u32 = READ_DIR | 0x6;
 const READ_FILE: u32 = READ_CONTROL | SYNCHRONIZE | 0x89;
 const WRITE_FILE: u32 = READ_FILE | 0x116 | DELETE;
+const WRITE_DAC: u32 = 0x0004_0000;
 const REPARSE: u32 = 0x400;
 const DIRECTORY: u32 = 0x10;
 const FILE_OPEN: u32 = 1;
@@ -632,12 +633,15 @@ fn open_at(
     }
     Ok(file)
 }
-fn reopen(file: &File, access: u32) -> io::Result<File> {
-    // ReOpenFile binds the existing object, never its former ambient pathname.
+fn reopen(file: &File) -> io::Result<File> {
+    // ReOpenFile binds the existing object, never its former ambient pathname. A second
+    // handle cannot exceed the first handle's granted access, so this reopen keeps the
+    // ancestor's READ_DIR rights; FILE_ADD_FILE/FILE_ADD_SUBDIRECTORY/READ_CONTROL for
+    // creating the final component are already inside READ_DIR and granted to handle one.
     let handle = unsafe {
         ReOpenFile(
             raw(file),
-            access,
+            READ_DIR,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
         )
@@ -769,7 +773,14 @@ impl Directory {
             let next = match open_at(&file, name, access, FILE_OPEN, true, false) {
                 Ok(f) => f,
                 Err(e) if create && e.kind() == io::ErrorKind::NotFound => {
-                    let writable = reopen(&file, WRITE_DIR)?;
+                    // ReOpenFile cannot exceed the first handle's granted mask, so a
+                    // WRITE_DIR upgrade of this READ_DIR ancestor is always denied;
+                    // the runner denial pointed at exactly this upgrade. READ_DIR
+                    // already carries READ_CONTROL plus FILE_ADD_FILE and
+                    // FILE_ADD_SUBDIRECTORY, which are the only rights NtCreateFile
+                    // needs to create the final component; the created object gets
+                    // WRITE_DIR rights through its own private descriptor below.
+                    let writable = reopen(&file)?;
                     let created = open_at(&writable, name, WRITE_DIR, FILE_OPEN_IF, true, true)?;
                     verify_private(&created)?;
                     created
@@ -1160,7 +1171,7 @@ mod security_tests {
         let writable = unsafe {
             ReOpenFile(
                 raw(&parent.file),
-                READ_CONTROL | 0x0004_0000,
+                READ_DIR | WRITE_DAC,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
             )
