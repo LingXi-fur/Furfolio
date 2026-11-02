@@ -51,6 +51,7 @@ const READ_DIR: u32 = READ_CONTROL | SYNCHRONIZE | 0x81 | 0x20;
 const WRITE_DIR: u32 = READ_DIR | 0x6;
 const READ_FILE: u32 = READ_CONTROL | SYNCHRONIZE | 0x89;
 const WRITE_FILE: u32 = READ_FILE | 0x116 | DELETE;
+#[cfg(test)]
 const WRITE_DAC: u32 = 0x0004_0000;
 const REPARSE: u32 = 0x400;
 const DIRECTORY: u32 = 0x10;
