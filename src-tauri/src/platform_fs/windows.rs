@@ -951,7 +951,7 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
 pub(crate) fn diagnostic_stage() -> String {
     let root = std::env::temp_dir().join(format!("furfolio-diag-{}", uuid::Uuid::new_v4()));
     let mut report = Vec::new();
-    let mut stage = |name: &str, result: io::Result<()>| {
+    fn stage(report: &mut Vec<String>, name: &str, result: io::Result<()>) {
         report.push(format!(
             "{name}: {}",
             match &result {
@@ -959,19 +959,24 @@ pub(crate) fn diagnostic_stage() -> String {
                 Err(e) => format!("{e:?}"),
             }
         ));
-        result.is_ok()
-    };
-    stage("token_sid", current_sid_bytes().map(|_| ()));
+    }
+    stage(&mut report, "token_sid", current_sid_bytes().map(|_| ()));
     match Directory::open(&root, true) {
         Ok(directory) => {
             report.push("walk_create: ok".to_owned());
             stage(
+                &mut report,
                 "summary_root",
                 security_summary(&directory.file).map(|_| ()),
             );
-            stage("verify_root", verify_private(&directory.file));
-            stage("child", directory.child("diag-child", true).map(|_| ()));
+            stage(&mut report, "verify_root", verify_private(&directory.file));
             stage(
+                &mut report,
+                "child",
+                directory.child("diag-child", true).map(|_| ()),
+            );
+            stage(
+                &mut report,
                 "open_file",
                 directory.open_file("diag.bin", true).map(|_| ()),
             );
