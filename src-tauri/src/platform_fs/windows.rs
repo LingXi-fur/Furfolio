@@ -538,231 +538,6 @@ pub(crate) fn security_summary(file: &File) -> io::Result<SecuritySummary> {
 pub(crate) fn current_sid_string() -> io::Result<String> {
     current_sid_string_impl()
 }
-#[cfg(test)]
-mod security_tests {
-    use super::*;
-    use windows_sys::Win32::Security::{
-        Authorization::SetSecurityInfo, GetSecurityDescriptorDacl, GetSecurityDescriptorGroup,
-        GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
-        PROTECTED_DACL_SECURITY_INFORMATION,
-    };
-
-    fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
-        assert_eq!(aces.len(), 3);
-        let mut subjects = Vec::new();
-        for (kind, flags, mask, subject) in aces {
-            assert_eq!(*kind, 0, "only explicit ALLOW ACEs are expected");
-            assert_eq!(*flags, 0, "no inherited or inheritable ACEs");
-            assert_eq!(*mask, 0x001f_01ff);
-            subjects.push(subject.as_str());
-        }
-        subjects.sort();
-        let mut expected = vec![user, "S-1-5-18", "S-1-5-32-544"];
-        expected.sort();
-        assert_eq!(subjects, expected);
-    }
-
-    #[test]
-    fn windows_binary_sids_validate_without_creating_files() {
-        let bytes = current_sid_bytes().expect("query current token SID without filesystem IO");
-        let user = LocalMemory::from_bytes(bytes.clone()).unwrap();
-        assert_eq!(bytes[0], 1);
-        assert_eq!(bytes.len(), 8 + usize::from(bytes[1]) * 4);
-        assert_ne!(unsafe { IsValidSid(user.0) }, 0);
-        assert_eq!(unsafe { GetLengthSid(user.0) } as usize, bytes.len());
-        assert_eq!(
-            sid_string(user.0).unwrap(),
-            current_sid_string_impl().unwrap()
-        );
-        for (subauthorities, expected) in
-            [(&[18][..], "S-1-5-18"), (&[32, 544][..], "S-1-5-32-544")]
-        {
-            let sid = constant_sid(subauthorities).unwrap();
-            assert_ne!(unsafe { IsValidSid(sid.0) }, 0);
-            let length = unsafe { GetLengthSid(sid.0) } as usize;
-            assert_eq!(length, 8 + 4 * subauthorities.len());
-            let bytes = unsafe { std::slice::from_raw_parts(sid.0.cast::<u8>(), length) };
-            assert_eq!(bytes[0], 1);
-            assert_eq!(usize::from(bytes[1]), subauthorities.len());
-            assert_eq!(&bytes[2..8], &[0, 0, 0, 0, 0, 5]);
-            for (index, value) in subauthorities.iter().enumerate() {
-                assert_eq!(&bytes[8 + 4 * index..12 + 4 * index], &value.to_le_bytes());
-            }
-            assert_eq!(sid_string(sid.0).unwrap(), expected);
-        }
-    }
-
-    #[test]
-    fn windows_absolute_private_descriptor_validates_without_creating_files() {
-        // Move the wrapper: all referenced allocations must remain stable and live.
-        let security = Box::new(descriptor().expect("construct pure in-memory private SD"));
-        let sd = security.as_ptr();
-        assert_ne!(unsafe { IsValidSecurityDescriptor(sd) }, 0);
-        let mut owner = null_mut();
-        let mut group = null_mut();
-        let mut defaulted = 1;
-        assert_ne!(
-            unsafe { GetSecurityDescriptorOwner(sd, &mut owner, &mut defaulted) },
-            0
-        );
-        assert_eq!(defaulted, 0);
-        assert_ne!(
-            unsafe { GetSecurityDescriptorGroup(sd, &mut group, &mut defaulted) },
-            0
-        );
-        assert_eq!(defaulted, 0);
-        let user = current_sid_string_impl().unwrap();
-        assert_eq!(sid_string(owner).unwrap(), user);
-        assert_eq!(sid_string(group).unwrap(), user);
-        let mut control = 0;
-        let mut revision = 0;
-        assert_ne!(
-            unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut revision) },
-            0
-        );
-        assert_eq!(revision, 1);
-        assert_ne!(control & SE_DACL_PRESENT, 0);
-        assert_ne!(control & SE_DACL_PROTECTED, 0);
-        let mut present = 0;
-        let mut acl = null_mut();
-        assert_ne!(
-            unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut acl, &mut defaulted) },
-            0
-        );
-        assert_ne!(present, 0);
-        assert_eq!(defaulted, 0);
-        assert!(!acl.is_null());
-        assert_ne!(unsafe { IsValidAcl(acl) }, 0);
-        let mut aces = Vec::new();
-        for index in 0..u32::from(unsafe { (*acl).AceCount }) {
-            let mut ace = null_mut();
-            assert_ne!(unsafe { GetAce(acl, index, &mut ace) }, 0);
-            let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
-            let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast();
-            aces.push((
-                allowed.Header.AceType,
-                allowed.Header.AceFlags,
-                allowed.Mask,
-                sid_string(sid).unwrap(),
-            ));
-        }
-        assert_private_aces(&aces, &user);
-    }
-
-    struct SyntheticParent(std::path::PathBuf);
-    impl Drop for SyntheticParent {
-        fn drop(&mut self) {
-            // Exact synthetic objects only; never recurse into unknown children.
-            for name in ["child/nested.bin", "direct.bin"] {
-                if let Err(error) = std::fs::remove_file(self.0.join(name)) {
-                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
-                        panic!("remove known synthetic file: {error}");
-                    }
-                }
-            }
-            for path in [self.0.join("child"), self.0.clone()] {
-                if let Err(error) = std::fs::remove_dir(path) {
-                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
-                        panic!("remove known synthetic directory: {error}");
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn windows_protected_creation_blocks_dangerous_inherit_only_parent_ace() {
-        let root = SyntheticParent(
-            std::env::temp_dir().join(format!("furfolio-inherit-{}", uuid::Uuid::new_v4())),
-        );
-        let parent = Directory::open(&root.0, true).expect("create private synthetic parent");
-        let user = LocalMemory::from_bytes(current_sid_bytes().unwrap()).unwrap();
-        let system = constant_sid(&[18]).unwrap();
-        let admin = constant_sid(&[32, 544]).unwrap();
-        let authenticated_users = constant_sid(&[11]).unwrap();
-        let memory = LocalMemory::zeroed(size_of::<ACL>() + 4 * (8 + 68)).unwrap();
-        let acl = memory.0.cast::<ACL>();
-        unsafe {
-            assert_ne!(
-                InitializeAcl(acl, (size_of::<ACL>() + 4 * (8 + 68)) as u32, 2),
-                0
-            );
-            for sid in [&user, &system, &admin] {
-                assert_ne!(AddAccessAllowedAceEx(acl, 2, 0, 0x001f_01ff, sid.0), 0);
-            }
-            assert_ne!(
-                AddAccessAllowedAceEx(
-                    acl,
-                    2,
-                    OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
-                    0x001f_01ff,
-                    authenticated_users.0
-                ),
-                0
-            );
-        }
-        // Only this newly created synthetic parent's DACL is changed, never an ancestor.
-        let writable = unsafe {
-            ReOpenFile(
-                raw(&parent.file),
-                READ_CONTROL | 0x0004_0000,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            )
-        };
-        if writable as isize == -1 {
-            panic!(
-                "open synthetic parent WRITE_DAC: {}",
-                io::Error::last_os_error()
-            );
-        }
-        let writable = unsafe { File::from_raw_handle(writable) };
-        let result = unsafe {
-            SetSecurityInfo(
-                raw(&writable),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                acl,
-                null(),
-            )
-        };
-        assert_eq!(
-            result, 0,
-            "install dangerous inherit-only ACE on synthetic parent"
-        );
-        drop(writable);
-        let audit = security_summary(&parent.file).unwrap();
-        assert_eq!(audit.aces.len(), 4);
-        assert!(audit
-            .aces
-            .iter()
-            .any(|(_, flags, mask, subject)| *flags == 0x0b
-                && *mask == 0x001f_01ff
-                && subject == "S-1-5-11"));
-        verify_private(&parent.file)
-            .expect("inherit-only ACE does not grant access to parent itself");
-        let child = parent
-            .child("child", true)
-            .expect("protected child directory creation must succeed");
-        let direct = parent
-            .open_file("direct.bin", true)
-            .expect("protected direct file creation must succeed");
-        let nested = child
-            .open_file("nested.bin", true)
-            .expect("protected nested file creation must succeed");
-        let user = current_sid_string_impl().unwrap();
-        for file in [&child.file, &direct, &nested] {
-            let audit = security_summary(file).unwrap();
-            assert_eq!(audit.owner, user);
-            assert_eq!(audit.group, user);
-            assert!(audit.dacl_present && audit.dacl_protected);
-            assert_private_aces(&audit.aces, &user);
-        }
-        // All held handles close before the exact-object cleanup guard.
-    }
-}
 
 fn component(name: &str) -> io::Result<Vec<u16>> {
     if name.is_empty()
@@ -1169,4 +944,229 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
     // cannot redirect the read; single-link and metadata checks are enforced on handle.
     let file = open_at(&directory.file, name, READ_FILE, FILE_OPEN, false, false)?;
     Ok((file, Some(directory)))
+}
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    use windows_sys::Win32::Security::{
+        Authorization::SetSecurityInfo, GetSecurityDescriptorDacl, GetSecurityDescriptorGroup,
+        GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
+        PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+
+    fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
+        assert_eq!(aces.len(), 3);
+        let mut subjects = Vec::new();
+        for (kind, flags, mask, subject) in aces {
+            assert_eq!(*kind, 0, "only explicit ALLOW ACEs are expected");
+            assert_eq!(*flags, 0, "no inherited or inheritable ACEs");
+            assert_eq!(*mask, 0x001f_01ff);
+            subjects.push(subject.as_str());
+        }
+        subjects.sort();
+        let mut expected = vec![user, "S-1-5-18", "S-1-5-32-544"];
+        expected.sort();
+        assert_eq!(subjects, expected);
+    }
+
+    #[test]
+    fn windows_binary_sids_validate_without_creating_files() {
+        let bytes = current_sid_bytes().expect("query current token SID without filesystem IO");
+        let user = LocalMemory::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(bytes[0], 1);
+        assert_eq!(bytes.len(), 8 + usize::from(bytes[1]) * 4);
+        assert_ne!(unsafe { IsValidSid(user.0) }, 0);
+        assert_eq!(unsafe { GetLengthSid(user.0) } as usize, bytes.len());
+        assert_eq!(
+            sid_string(user.0).unwrap(),
+            current_sid_string_impl().unwrap()
+        );
+        for (subauthorities, expected) in
+            [(&[18][..], "S-1-5-18"), (&[32, 544][..], "S-1-5-32-544")]
+        {
+            let sid = constant_sid(subauthorities).unwrap();
+            assert_ne!(unsafe { IsValidSid(sid.0) }, 0);
+            let length = unsafe { GetLengthSid(sid.0) } as usize;
+            assert_eq!(length, 8 + 4 * subauthorities.len());
+            let bytes = unsafe { std::slice::from_raw_parts(sid.0.cast::<u8>(), length) };
+            assert_eq!(bytes[0], 1);
+            assert_eq!(usize::from(bytes[1]), subauthorities.len());
+            assert_eq!(&bytes[2..8], &[0, 0, 0, 0, 0, 5]);
+            for (index, value) in subauthorities.iter().enumerate() {
+                assert_eq!(&bytes[8 + 4 * index..12 + 4 * index], &value.to_le_bytes());
+            }
+            assert_eq!(sid_string(sid.0).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn windows_absolute_private_descriptor_validates_without_creating_files() {
+        // Move the wrapper: all referenced allocations must remain stable and live.
+        let security = Box::new(descriptor().expect("construct pure in-memory private SD"));
+        let sd = security.as_ptr();
+        assert_ne!(unsafe { IsValidSecurityDescriptor(sd) }, 0);
+        let mut owner = null_mut();
+        let mut group = null_mut();
+        let mut defaulted = 1;
+        assert_ne!(
+            unsafe { GetSecurityDescriptorOwner(sd, &mut owner, &mut defaulted) },
+            0
+        );
+        assert_eq!(defaulted, 0);
+        assert_ne!(
+            unsafe { GetSecurityDescriptorGroup(sd, &mut group, &mut defaulted) },
+            0
+        );
+        assert_eq!(defaulted, 0);
+        let user = current_sid_string_impl().unwrap();
+        assert_eq!(sid_string(owner).unwrap(), user);
+        assert_eq!(sid_string(group).unwrap(), user);
+        let mut control = 0;
+        let mut revision = 0;
+        assert_ne!(
+            unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut revision) },
+            0
+        );
+        assert_eq!(revision, 1);
+        assert_ne!(control & SE_DACL_PRESENT, 0);
+        assert_ne!(control & SE_DACL_PROTECTED, 0);
+        let mut present = 0;
+        let mut acl = null_mut();
+        assert_ne!(
+            unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut acl, &mut defaulted) },
+            0
+        );
+        assert_ne!(present, 0);
+        assert_eq!(defaulted, 0);
+        assert!(!acl.is_null());
+        assert_ne!(unsafe { IsValidAcl(acl) }, 0);
+        let mut aces = Vec::new();
+        for index in 0..u32::from(unsafe { (*acl).AceCount }) {
+            let mut ace = null_mut();
+            assert_ne!(unsafe { GetAce(acl, index, &mut ace) }, 0);
+            let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+            let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast();
+            aces.push((
+                allowed.Header.AceType,
+                allowed.Header.AceFlags,
+                allowed.Mask,
+                sid_string(sid).unwrap(),
+            ));
+        }
+        assert_private_aces(&aces, &user);
+    }
+
+    struct SyntheticParent(std::path::PathBuf);
+    impl Drop for SyntheticParent {
+        fn drop(&mut self) {
+            // Exact synthetic objects only; never recurse into unknown children.
+            for name in ["child/nested.bin", "direct.bin"] {
+                if let Err(error) = std::fs::remove_file(self.0.join(name)) {
+                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
+                        panic!("remove known synthetic file: {error}");
+                    }
+                }
+            }
+            for path in [self.0.join("child"), self.0.clone()] {
+                if let Err(error) = std::fs::remove_dir(path) {
+                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
+                        panic!("remove known synthetic directory: {error}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn windows_protected_creation_blocks_dangerous_inherit_only_parent_ace() {
+        let root = SyntheticParent(
+            std::env::temp_dir().join(format!("furfolio-inherit-{}", uuid::Uuid::new_v4())),
+        );
+        let parent = Directory::open(&root.0, true).expect("create private synthetic parent");
+        let user = LocalMemory::from_bytes(current_sid_bytes().unwrap()).unwrap();
+        let system = constant_sid(&[18]).unwrap();
+        let admin = constant_sid(&[32, 544]).unwrap();
+        let authenticated_users = constant_sid(&[11]).unwrap();
+        let memory = LocalMemory::zeroed(size_of::<ACL>() + 4 * (8 + 68)).unwrap();
+        let acl = memory.0.cast::<ACL>();
+        unsafe {
+            assert_ne!(
+                InitializeAcl(acl, (size_of::<ACL>() + 4 * (8 + 68)) as u32, 2),
+                0
+            );
+            for sid in [&user, &system, &admin] {
+                assert_ne!(AddAccessAllowedAceEx(acl, 2, 0, 0x001f_01ff, sid.0), 0);
+            }
+            assert_ne!(
+                AddAccessAllowedAceEx(
+                    acl,
+                    2,
+                    OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                    0x001f_01ff,
+                    authenticated_users.0
+                ),
+                0
+            );
+        }
+        // Only this newly created synthetic parent's DACL is changed, never an ancestor.
+        let writable = unsafe {
+            ReOpenFile(
+                raw(&parent.file),
+                READ_CONTROL | 0x0004_0000,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            )
+        };
+        if writable as isize == -1 {
+            panic!(
+                "open synthetic parent WRITE_DAC: {}",
+                io::Error::last_os_error()
+            );
+        }
+        let writable = unsafe { File::from_raw_handle(writable) };
+        let result = unsafe {
+            SetSecurityInfo(
+                raw(&writable),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                acl,
+                null(),
+            )
+        };
+        assert_eq!(
+            result, 0,
+            "install dangerous inherit-only ACE on synthetic parent"
+        );
+        drop(writable);
+        let audit = security_summary(&parent.file).unwrap();
+        assert_eq!(audit.aces.len(), 4);
+        assert!(audit
+            .aces
+            .iter()
+            .any(|(_, flags, mask, subject)| *flags == 0x0b
+                && *mask == 0x001f_01ff
+                && subject == "S-1-5-11"));
+        verify_private(&parent.file)
+            .expect("inherit-only ACE does not grant access to parent itself");
+        let child = parent
+            .child("child", true)
+            .expect("protected child directory creation must succeed");
+        let direct = parent
+            .open_file("direct.bin", true)
+            .expect("protected direct file creation must succeed");
+        let nested = child
+            .open_file("nested.bin", true)
+            .expect("protected nested file creation must succeed");
+        let user = current_sid_string_impl().unwrap();
+        for file in [&child.file, &direct, &nested] {
+            let audit = security_summary(file).unwrap();
+            assert_eq!(audit.owner, user);
+            assert_eq!(audit.group, user);
+            assert!(audit.dacl_present && audit.dacl_protected);
+            assert_private_aces(&audit.aces, &user);
+        }
+        // All held handles close before the exact-object cleanup guard.
+    }
 }
