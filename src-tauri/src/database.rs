@@ -412,6 +412,280 @@ fn record_migration(
     Ok(())
 }
 
+#[cfg(all(test, unix))]
+mod unix_production_lock_tests {
+    use super::*;
+    use std::os::unix::fs::DirBuilderExt;
+    use std::process::{Child, Command, Stdio};
+    use std::time::Instant;
+
+    const CHILD_TEST: &str = "database::unix_production_lock_tests::production_lock_child";
+    const DEADLINE: Duration = Duration::from_secs(15);
+
+    struct SyntheticLibrary(PathBuf);
+    impl SyntheticLibrary {
+        fn new() -> Self {
+            // Canonicalize only the OS temp directory: macOS /var is a symlink, while
+            // production capability traversal deliberately rejects symlink components.
+            let temp = fs::canonicalize(std::env::temp_dir()).unwrap();
+            let root = temp.join(format!("furfolio-unix-lock-{}", uuid::Uuid::new_v4()));
+            fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+            Self(root)
+        }
+        fn initialize(&self) -> Database {
+            let database = Database::initialize(&self.0).expect("production initialize");
+            assert_eq!(database.path, self.0.join("furfolio.sqlite3"));
+            database
+        }
+    }
+    impl Drop for SyntheticLibrary {
+        fn drop(&mut self) {
+            let result = fs::remove_dir_all(&self.0);
+            if !std::thread::panicking() {
+                result.expect("remove only this synthetic library");
+            }
+        }
+    }
+
+    struct ChildProcess(Child);
+    impl ChildProcess {
+        fn spawn(root: &Path, mode: &str, label: &str) -> Self {
+            Self(
+                Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+                    .env("FURFOLIO_UNIX_LOCK_CHILD", mode)
+                    .env("FURFOLIO_UNIX_LOCK_ROOT", root)
+                    .env("FURFOLIO_UNIX_LOCK_LABEL", label)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .expect("spawn independent production-lock test process"),
+            )
+        }
+        fn wait_for_marker(&mut self, marker: &Path) {
+            let start = Instant::now();
+            while !marker.exists() {
+                assert!(
+                    self.0.try_wait().unwrap().is_none(),
+                    "child exited before ready"
+                );
+                assert!(start.elapsed() < DEADLINE, "child marker deadline");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        fn wait_success(&mut self) {
+            let start = Instant::now();
+            loop {
+                if let Some(status) = self.0.try_wait().unwrap() {
+                    assert!(status.success(), "production-lock child failed: {status}");
+                    return;
+                }
+                assert!(start.elapsed() < DEADLINE, "child exit deadline");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        fn kill_and_reap(&mut self) {
+            self.0.kill().expect("terminate synthetic lock holder");
+            let start = Instant::now();
+            loop {
+                if let Some(status) = self.0.try_wait().unwrap() {
+                    assert!(!status.success(), "holder must exit abnormally");
+                    return;
+                }
+                assert!(
+                    start.elapsed() < DEADLINE,
+                    "terminated holder reap deadline"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+    impl Drop for ChildProcess {
+        fn drop(&mut self) {
+            // Never call unbounded Child::wait, including assertion/deadline unwinding.
+            if matches!(self.0.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            let killed = self.0.kill();
+            let start = Instant::now();
+            let failure = loop {
+                match self.0.try_wait() {
+                    Ok(Some(_)) => return,
+                    Err(error) => break format!("could not reap synthetic child: {error}"),
+                    Ok(None) if start.elapsed() >= Duration::from_secs(2) => {
+                        break format!("synthetic child cleanup deadline; kill result: {killed:?}");
+                    }
+                    Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            };
+            if std::thread::panicking() {
+                eprintln!("{failure}");
+            } else {
+                panic!("{failure}");
+            }
+        }
+    }
+
+    fn wait_for_file(path: &Path) {
+        let start = Instant::now();
+        while !path.exists() {
+            assert!(start.elapsed() < DEADLINE, "parent signal deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn production_lock_child() {
+        let Some(mode) = std::env::var_os("FURFOLIO_UNIX_LOCK_CHILD") else {
+            return; // Entry point only; parent tests below exercise both child modes.
+        };
+        let root = PathBuf::from(std::env::var_os("FURFOLIO_UNIX_LOCK_ROOT").unwrap());
+        let label = std::env::var("FURFOLIO_UNIX_LOCK_LABEL").unwrap();
+        assert!(root.is_absolute());
+        assert!(root
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("furfolio-unix-lock-"));
+        assert!(matches!(
+            label.as_str(),
+            "first" | "second" | "holder" | "waiter"
+        ));
+        if mode == "initialize" {
+            fs::write(root.join(format!("{label}.ready")), b"ready").unwrap();
+            wait_for_file(&root.join("initialize.go"));
+            fs::write(root.join(format!("{label}.started")), b"started").unwrap();
+            let database = Database::initialize(&root).expect("child production initialize");
+            assert_eq!(database.path, root.join("furfolio.sqlite3"));
+            let connection = database.open().unwrap();
+            let count: i64 = connection
+                .query_row("SELECT count(*) FROM schema_migrations", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, LATEST_SCHEMA_VERSION);
+        } else if mode == "hold" {
+            let database = Database::initialize(&root).expect("holder production initialize");
+            let _lock = database
+                .lock_media()
+                .expect("hold production cross-process lock");
+            fs::write(root.join(format!("{label}.ready")), b"ready").unwrap();
+            wait_for_file(&root.join("holder.release"));
+        } else {
+            panic!("unknown synthetic child mode");
+        }
+    }
+
+    fn initialize_two_processes(root: &Path) {
+        let mut first = ChildProcess::spawn(root, "initialize", "first");
+        let mut second = ChildProcess::spawn(root, "initialize", "second");
+        first.wait_for_marker(&root.join("first.ready"));
+        second.wait_for_marker(&root.join("second.ready"));
+        fs::write(root.join("initialize.go"), b"go").unwrap();
+        first.wait_success();
+        second.wait_success();
+    }
+
+    #[test]
+    fn production_initialize_serializes_independent_processes_and_recovers() {
+        let library = SyntheticLibrary::new();
+        initialize_two_processes(&library.0); // Concurrent cold schema migration.
+        let database = library.initialize();
+        let connection = database.open().unwrap();
+        connection
+            .execute(
+                "INSERT INTO media_files (name,staging_name,asset_id,kind,sha256,byte_size,state)
+             VALUES (?1,?2,'synthetic-pending','original',?3,1,'pendingImport')",
+                params![
+                    format!("{}.bin", uuid::Uuid::new_v4()),
+                    format!("{}.part", uuid::Uuid::new_v4()),
+                    "a".repeat(64)
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        for marker in [
+            "initialize.go",
+            "first.ready",
+            "second.ready",
+            "first.started",
+            "second.started",
+        ] {
+            fs::remove_file(library.0.join(marker)).unwrap();
+        }
+        initialize_two_processes(&library.0); // Same production lock covers recovery.
+        let connection = database.open().unwrap();
+        let pending: i64 = connection
+            .query_row("SELECT count(*) FROM media_files", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pending, 0, "registered pending media must be recovered");
+        let lock = database
+            .lock_media()
+            .expect("initializers released production lock");
+        drop(lock);
+    }
+
+    #[test]
+    fn production_lock_is_nonblocking_but_initialize_waits_for_release() {
+        let library = SyntheticLibrary::new();
+        let database = library.initialize();
+        let mut holder = ChildProcess::spawn(&library.0, "hold", "holder");
+        holder.wait_for_marker(&library.0.join("holder.ready"));
+        let start = Instant::now();
+        assert!(matches!(database.lock_media(), Err(AppError::MediaBusy)));
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "daily lock must not wait"
+        );
+        let mut waiter = ChildProcess::spawn(&library.0, "initialize", "waiter");
+        waiter.wait_for_marker(&library.0.join("waiter.ready"));
+        fs::write(library.0.join("initialize.go"), b"go").unwrap();
+        waiter.wait_for_marker(&library.0.join("waiter.started"));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            waiter.0.try_wait().unwrap().is_none(),
+            "initializer must wait, not return busy"
+        );
+        fs::write(library.0.join("holder.release"), b"release").unwrap();
+        holder.wait_success();
+        waiter.wait_success();
+        let lock = database
+            .lock_media()
+            .expect("lock released after normal child exit");
+        drop(lock);
+    }
+
+    #[test]
+    fn production_lock_test_child_drop_terminates_and_reaps_with_deadline() {
+        let library = SyntheticLibrary::new();
+        let database = library.initialize();
+        let mut holder = ChildProcess::spawn(&library.0, "hold", "holder");
+        holder.wait_for_marker(&library.0.join("holder.ready"));
+        assert!(matches!(database.lock_media(), Err(AppError::MediaBusy)));
+        let start = Instant::now();
+        drop(holder); // Exercise cleanup without the explicit kill_and_reap path.
+        assert!(start.elapsed() < Duration::from_secs(3));
+        let lock = database
+            .lock_media()
+            .expect("Drop reaped the synthetic holder");
+        drop(lock);
+    }
+
+    #[test]
+    fn production_lock_is_released_after_holder_is_killed() {
+        let library = SyntheticLibrary::new();
+        let database = library.initialize();
+        let mut holder = ChildProcess::spawn(&library.0, "hold", "holder");
+        holder.wait_for_marker(&library.0.join("holder.ready"));
+        assert!(matches!(database.lock_media(), Err(AppError::MediaBusy)));
+        holder.kill_and_reap();
+        let reopened = library.initialize();
+        let lock = reopened
+            .lock_media()
+            .expect("abnormal process exit releases production lock");
+        drop(lock);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

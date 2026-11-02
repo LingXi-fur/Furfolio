@@ -260,12 +260,24 @@ fn windows_created_objects_have_user_owner_protected_three_ace_dacl_no_inheritan
         } else {
             fs::File::open(&object).unwrap()
         };
-        let (owner, group, dacl, ace_count) = platform_fs::security_summary(&handle).unwrap();
+        let audit = platform_fs::security_summary(&handle).unwrap();
         let user = platform_fs::current_sid_string().unwrap();
-        assert_eq!(owner, user);
-        assert_eq!(group, user);
-        assert_eq!(ace_count, 3);
-        assert!(dacl);
+        assert_eq!(audit.owner, user);
+        assert_eq!(audit.group, user);
+        assert!(audit.dacl_present);
+        assert!(audit.dacl_protected);
+        assert_eq!(audit.aces.len(), 3);
+        let mut subjects = Vec::new();
+        for (kind, flags, mask, subject) in audit.aces {
+            assert_eq!(kind, 0, "only ACCESS_ALLOWED_ACE is expected");
+            assert_eq!(flags, 0, "ACE must be explicit and non-inheriting");
+            assert_eq!(mask, 0x001f_01ff, "only FILE_ALL_ACCESS is expected");
+            subjects.push(subject);
+        }
+        subjects.sort();
+        let mut expected = vec![user, "S-1-5-18".to_owned(), "S-1-5-32-544".to_owned()];
+        expected.sort();
+        assert_eq!(subjects, expected);
     }
 }
 

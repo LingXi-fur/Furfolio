@@ -17,10 +17,12 @@ use windows_sys::Win32::{
     Security::{
         AddAccessAllowedAceEx,
         Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT},
-        GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation, InitializeAcl, IsValidSid,
-        SetSecurityDescriptorDacl, SetSecurityDescriptorGroup, SetSecurityDescriptorOwner,
-        TokenUser, ACL, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
-        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, TOKEN_QUERY, TOKEN_USER,
+        GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation, InitializeAcl,
+        InitializeSecurityDescriptor, IsValidAcl, IsValidSecurityDescriptor, IsValidSid,
+        SetSecurityDescriptorControl, SetSecurityDescriptorDacl, SetSecurityDescriptorGroup,
+        SetSecurityDescriptorOwner, TokenUser, ACL, DACL_SECURITY_INFORMATION,
+        OWNER_SECURITY_INFORMATION, SECURITY_DESCRIPTOR, SE_DACL_PRESENT, SE_DACL_PROTECTED,
+        TOKEN_QUERY, TOKEN_USER,
     },
     Storage::FileSystem::{
         CreateFileW, FileBasicInfo, FileDispositionInfo, FileIdInfo, FileStandardInfo,
@@ -31,10 +33,15 @@ use windows_sys::Win32::{
         OPEN_EXISTING,
     },
     System::{
-        Memory::{LocalAlloc, LMEM_FIXED},
+        Memory::{LocalAlloc, LMEM_FIXED, LMEM_ZEROINIT},
         Threading::{GetCurrentProcess, OpenProcessToken},
         IO::OVERLAPPED,
     },
+};
+
+#[cfg(test)]
+use windows_sys::Win32::Security::{
+    GetAce, ACCESS_ALLOWED_ACE, ACE_HEADER, GROUP_SECURITY_INFORMATION,
 };
 
 const READ_CONTROL: u32 = 0x0002_0000;
@@ -187,17 +194,26 @@ impl Drop for LocalMemory {
     }
 }
 impl LocalMemory {
-    fn from_bytes(bytes: Vec<u8>) -> io::Result<Self> {
-        let handle = LocalAlloc(LMEM_FIXED, bytes.len());
+    fn zeroed(length: usize) -> io::Result<Self> {
+        // SAFETY: allocation size is bounded by the token/ACL callers; LocalFree owns it.
+        let handle = unsafe { LocalAlloc(LMEM_FIXED | LMEM_ZEROINIT, length) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: handle owns exactly bytes.len() writable, initialized storage.
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), handle.cast(), bytes.len()) };
         Ok(Self(handle))
+    }
+    fn from_bytes(bytes: Vec<u8>) -> io::Result<Self> {
+        let memory = Self::zeroed(bytes.len())?;
+        // SAFETY: allocation owns bytes.len() writable bytes, distinct from the source.
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), memory.0.cast(), bytes.len()) };
+        Ok(memory)
     }
 }
 fn sid_string(sid: *mut c_void) -> io::Result<String> {
+    // SAFETY: callers supply bounded SID storage from an OS query or owned allocation.
+    if sid.is_null() || unsafe { IsValidSid(sid) } == 0 {
+        return Err(unsafe_entry());
+    }
     let mut text = null_mut();
     // SAFETY: the SID comes from a successfully queried OS token/security descriptor.
     if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
@@ -214,7 +230,7 @@ fn sid_string(sid: *mut c_void) -> io::Result<String> {
     }
     String::from_utf16(unsafe { std::slice::from_raw_parts(text, n) }).map_err(|_| unsafe_entry())
 }
-fn current_sid() -> io::Result<String> {
+fn current_sid_bytes() -> io::Result<Vec<u8>> {
     let mut token = null_mut();
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
         return Err(io::Error::last_os_error());
@@ -234,92 +250,130 @@ fn current_sid() -> io::Result<String> {
     if (length as usize) < size_of::<TOKEN_USER>() || length > 65536 {
         return Err(unsafe_entry());
     }
-    let mut buffer = vec![0usize; (length as usize).div_ceil(size_of::<usize>())];
+    let capacity = length;
+    let mut buffer = vec![0usize; (capacity as usize).div_ceil(size_of::<usize>())];
     if unsafe {
         GetTokenInformation(
             token.as_raw_handle() as HANDLE,
             TokenUser,
             buffer.as_mut_ptr().cast(),
-            length,
+            capacity,
             &mut length,
         )
     } == 0
     {
         return Err(io::Error::last_os_error());
     }
-    let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
-    let length = unsafe { GetLengthSid(user.User.Sid) } as usize;
-    if !(8..=68).contains(&length) {
+    if length > capacity || (length as usize) < size_of::<TOKEN_USER>() {
         return Err(unsafe_entry());
     }
-    // SAFETY: the token's own SID is a valid OS SID; bounded copy into owned storage.
-    let bytes = unsafe { std::slice::from_raw_parts(user.User.Sid.cast::<u8>(), length) }.to_vec();
-    Ok(bytes)
+    // SAFETY: the aligned buffer contains a complete TOKEN_USER from the OS.
+    let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+    let start = buffer.as_ptr() as usize;
+    let offset = (user.User.Sid as usize)
+        .checked_sub(start)
+        .ok_or_else(unsafe_entry)?;
+    // Bound the SID header and subauthorities before passing it to Win32 validation.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), length as usize) };
+    let header = bytes.get(offset..).ok_or_else(unsafe_entry)?;
+    if header.len() < 8 || header[0] != 1 || header[1] > 15 {
+        return Err(unsafe_entry());
+    }
+    let sid_length = 8 + usize::from(header[1]) * 4;
+    let sid = header.get(..sid_length).ok_or_else(unsafe_entry)?;
+    // SAFETY: the full SID is inside the still-live, aligned token query buffer.
+    if unsafe { IsValidSid(user.User.Sid) } == 0
+        || unsafe { GetLengthSid(user.User.Sid) } as usize != sid_length
+    {
+        return Err(unsafe_entry());
+    }
+    Ok(sid.to_vec())
 }
-fn constant_sid(subauthorities: &[u32]) -> LocalMemory {
-    // Builds a classic revision-1 SID with a 5-byte NT authority (decimal 5).
+fn current_sid_string_impl() -> io::Result<String> {
+    let sid = LocalMemory::from_bytes(current_sid_bytes()?)?;
+    sid_string(sid.0)
+}
+fn constant_sid(subauthorities: &[u32]) -> io::Result<LocalMemory> {
+    if subauthorities.len() > 15 {
+        return Err(unsafe_entry());
+    }
+    // Revision 1, six-byte SECURITY_NT_AUTHORITY (5), little-endian subauthorities.
     let mut bytes = vec![0u8; 8 + 4 * subauthorities.len()];
     bytes[0] = 1;
     bytes[1] = subauthorities.len() as u8;
-    bytes[2..8].copy_from_slice(&[0, 0, 0, 0, 5]);
+    bytes[2..8].copy_from_slice(&[0, 0, 0, 0, 0, 5]);
     for (index, value) in subauthorities.iter().enumerate() {
         bytes[8 + 4 * index..12 + 4 * index].copy_from_slice(&value.to_le_bytes());
     }
-    // SAFETY: the assembled bytes are a well-formed SID by construction above.
-    LocalMemory::from_bytes(bytes).expect("constant SID allocation")
-}
-/// Absolute SECURITY_DESCRIPTOR: owner=group=current user, protected DACL granting
-/// FILE_ALL_ACCESS to the current user, SYSTEM and Administrators only. The ACL is
-/// allocated behind the descriptor inside one self-contained LocalAlloc block whose
-/// Dacl offset points just past the fixed header, so no separate lifetime is needed.
-fn descriptor() -> io::Result<LocalMemory> {
-    const ALL: u32 = 0x001f_01ff;
-    const ADMINISTRATORS: [u32; 2] = [32, 544];
-    const SYSTEM: [u32; 1] = [18];
-    let user = LocalMemory::from_bytes(sid_bytes()?)?;
-    let system = constant_sid(&SYSTEM);
-    let administrators = constant_sid(&ADMINISTRATORS);
-    let system = parse(SYSTEM)?;
-    let administrators = parse(ADMINISTRATORS)?;
-    const HEADER: usize = size_of::<u32>() * 6;
-    const ACL_SPACE: usize = 8 + 3 * (8 + 68); // ACL header plus three maximal ACEs
-    let allocation = LocalAlloc(LMEM_FIXED, HEADER + ACL_SPACE);
-    if allocation.is_null() {
-        return Err(io::Error::last_os_error());
+    let sid = LocalMemory::from_bytes(bytes)?;
+    // SAFETY: the allocation contains the entire SID assembled above.
+    if unsafe { IsValidSid(sid.0) } == 0 {
+        return Err(unsafe_entry());
     }
-    let descriptor = LocalMemory(allocation);
-    let acl = unsafe { descriptor.0.add(HEADER).cast::<ACL>() };
-    // SAFETY: descriptor is a fresh zeroed absolute SECURITY_DESCRIPTOR of HEADER
-    // bytes followed by ACL_SPACE writable bytes; every SID is a validated OS SID.
+    Ok(sid)
+}
+/// Absolute descriptor and every allocation referenced by it stay alive through creation.
+/// AddAccessAllowedAceEx copies SYSTEM/Administrators SIDs into the owned ACL.
+struct PrivateSecurity {
+    descriptor: Box<SECURITY_DESCRIPTOR>,
+    _user: LocalMemory,
+    _acl: LocalMemory,
+}
+impl PrivateSecurity {
+    fn as_ptr(&self) -> *mut c_void {
+        (&*self.descriptor as *const SECURITY_DESCRIPTOR)
+            .cast_mut()
+            .cast()
+    }
+}
+fn descriptor() -> io::Result<PrivateSecurity> {
+    const ALL: u32 = 0x001f_01ff;
+    const ACL_SPACE: usize = size_of::<ACL>() + 3 * (8 + 68);
+    let user = LocalMemory::from_bytes(current_sid_bytes()?)?;
+    let system = constant_sid(&[18])?;
+    let administrators = constant_sid(&[32, 544])?;
+    let acl_memory = LocalMemory::zeroed(ACL_SPACE)?;
+    let acl = acl_memory.0.cast::<ACL>();
+    let mut descriptor = Box::new(SECURITY_DESCRIPTOR {
+        Revision: 0,
+        Sbz1: 0,
+        Control: 0,
+        Owner: null_mut(),
+        Group: null_mut(),
+        Sacl: null_mut(),
+        Dacl: null_mut(),
+    });
+    let sd = (&mut *descriptor as *mut SECURITY_DESCRIPTOR).cast();
+    // SAFETY: SDK-defined absolute SD and aligned ACL allocations have their actual
+    // sizes. Owner/group SID and ACL are retained in PrivateSecurity, not packed or
+    // freed while NtCreateFile uses them. No self-relative offsets are fabricated.
     unsafe {
-        if InitializeAcl(acl, ACL_SPACE as u32, 2) == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        for sid in [&user, &system, &administrators] {
-            if AddAccessAllowedAceEx(acl, 2, 0, ALL, sid.0.cast()) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        let used = (*acl).AclSize as usize;
-        let user_sid: PSECURITY_DESCRIPTOR = user.0.cast();
-        if SetSecurityDescriptorOwner(descriptor.0.cast(), user_sid.cast(), 0) == 0
-            || SetSecurityDescriptorGroup(descriptor.0.cast(), user_sid.cast(), 0) == 0
-            || SetSecurityDescriptorDacl(descriptor.0.cast(), 1, acl, 0) == 0
+        if InitializeSecurityDescriptor(sd, 1) == 0 || InitializeAcl(acl, ACL_SPACE as u32, 2) == 0
         {
             return Err(io::Error::last_os_error());
         }
-        // Pack the live ACL to the tail of the block, then point Dacl at it so the
-        // whole security descriptor stays valid for as long as the allocation lives.
-        let packed = descriptor.0.add(HEADER + used);
-        std::ptr::copy_nonoverlapping(acl.cast::<u8>(), packed.cast(), used);
-        let dacl_offset = (HEADER + used) as u32;
-        std::ptr::copy_nonoverlapping(
-            dacl_offset.to_le_bytes().as_ptr(),
-            descriptor.0.add(3 * size_of::<u32>()).cast(),
-            4,
-        );
+        for sid in [&user, &system, &administrators] {
+            if AddAccessAllowedAceEx(acl, 2, 0, ALL, sid.0) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        if SetSecurityDescriptorOwner(sd, user.0, 0) == 0
+            || SetSecurityDescriptorGroup(sd, user.0, 0) == 0
+            || SetSecurityDescriptorDacl(sd, 1, acl, 0) == 0
+            || SetSecurityDescriptorControl(sd, SE_DACL_PROTECTED, SE_DACL_PROTECTED) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if IsValidAcl(acl) == 0 || IsValidSecurityDescriptor(sd) == 0 {
+            return Err(unsafe_entry());
+        }
     }
-    Ok(descriptor)
+    Ok(PrivateSecurity {
+        descriptor,
+        _user: user,
+        _acl: acl_memory,
+    })
 }
 fn trusted(sid: &str, user: &str) -> bool {
     sid == user || sid == "S-1-5-18" || sid == "S-1-5-32-544"
@@ -347,7 +401,7 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
     if owner.is_null() || acl.is_null() {
         return Err(unsafe_entry());
     }
-    let user = current_sid()?;
+    let user = current_sid_string_impl()?;
     let owner = sid_string(owner)?;
     // TrustedInstaller owns normal Windows volume roots. It is trusted only for ancestors,
     // never as the owner of an application-private root or a newly created object.
@@ -360,7 +414,7 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
     if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut revision) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    if control & 0x4 == 0 {
+    if control & SE_DACL_PRESENT == 0 {
         return Err(unsafe_entry());
     } // SE_DACL_PRESENT; NULL already rejected.
     let header = unsafe { *acl };
@@ -387,12 +441,13 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
         }
         let subject = sid_string(sid.as_ptr().cast_mut().cast())?;
         if kind == 0 && flags & 0x8 == 0 && !trusted(&subject, &user) {
-            // TrustedInstaller's inherited ACEs are interpreted only as far as granting
-            // this chain read/execute plus normal create-sibling; the exemption never
-            // tolerates delete/replace of existing children, owner or DACL changes.
+            // TrustedInstaller is an ancestor-only trusted system-service principal.
+            // Its generic write/all and delete-child grants are accepted here; explicit
+            // DELETE/WRITE_DAC/WRITE_OWNER grants still fail this ancestor check.
+            // Final private objects never gain this additional trusted principal.
             let exempt = ancestor && subject == installer;
-            // A volume root may allow creating unrelated children, not deleting this
-            // chain, changing its owner/DACL, or deleting/replacing existing children.
+            // Other untrusted ancestor subjects may create unrelated children but
+            // must not delete this chain, change owner/DACL, or replace children.
             let dangerous = if ancestor { 0x500d_0040 } else { 0x500d_0156 };
             if mask & dangerous != 0 && !exempt {
                 return Err(unsafe_entry());
@@ -408,9 +463,17 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
 pub(crate) fn verify_private(file: &File) -> io::Result<()> {
     verify_acl(file, false)
 }
-/// Test-only audit view: owner, group, DACL presence and its ACE count.
+/// Test-only audit of the security descriptor returned by the filesystem.
 #[cfg(test)]
-pub(crate) fn security_summary(file: &File) -> io::Result<(String, String, bool, usize)> {
+pub(crate) struct SecuritySummary {
+    pub owner: String,
+    pub group: String,
+    pub dacl_present: bool,
+    pub dacl_protected: bool,
+    pub aces: Vec<(u8, u8, u32, String)>,
+}
+#[cfg(test)]
+pub(crate) fn security_summary(file: &File) -> io::Result<SecuritySummary> {
     let mut owner = null_mut();
     let mut group = null_mut();
     let mut acl = null_mut::<ACL>();
@@ -431,21 +494,276 @@ pub(crate) fn security_summary(file: &File) -> io::Result<(String, String, bool,
         return Err(io::Error::from_raw_os_error(error as i32));
     }
     let _memory = LocalMemory(sd);
-    let owner = sid_string(owner)?;
-    let group = sid_string(group)?;
-    Ok((
-        owner,
-        group,
-        !acl.is_null(),
-        acl.is_null()
-            .then_some(0)
-            .unwrap_or(unsafe { (*acl).AceCount } as usize),
-    ))
+    if sd.is_null() || owner.is_null() || group.is_null() || acl.is_null() {
+        return Err(unsafe_entry());
+    }
+    // SAFETY: GetSecurityInfo owns a complete descriptor and its non-NULL ACL.
+    if unsafe { IsValidSecurityDescriptor(sd) } == 0 || unsafe { IsValidAcl(acl) } == 0 {
+        return Err(unsafe_entry());
+    }
+    let mut control = 0;
+    let mut revision = 0;
+    if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut aces = Vec::new();
+    for index in 0..u32::from(unsafe { (*acl).AceCount }) {
+        let mut ace = null_mut();
+        // SAFETY: index stays inside the validated ACL; pointer stays inside sd.
+        if unsafe { GetAce(acl, index, &mut ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        if header.AceType != 0 || usize::from(header.AceSize) < size_of::<ACCESS_ALLOWED_ACE>() {
+            return Err(unsafe_entry());
+        }
+        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast();
+        aces.push((
+            header.AceType,
+            header.AceFlags,
+            allowed.Mask,
+            sid_string(sid)?,
+        ));
+    }
+    Ok(SecuritySummary {
+        owner: sid_string(owner)?,
+        group: sid_string(group)?,
+        dacl_present: control & SE_DACL_PRESENT != 0,
+        dacl_protected: control & SE_DACL_PROTECTED != 0,
+        aces,
+    })
 }
 #[cfg(test)]
 pub(crate) fn current_sid_string() -> io::Result<String> {
-    current_sid()
+    current_sid_string_impl()
 }
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    use windows_sys::Win32::Security::{
+        Authorization::SetSecurityInfo, GetSecurityDescriptorDacl, GetSecurityDescriptorGroup,
+        GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
+        PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+
+    fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
+        assert_eq!(aces.len(), 3);
+        let mut subjects = Vec::new();
+        for (kind, flags, mask, subject) in aces {
+            assert_eq!(*kind, 0, "only explicit ALLOW ACEs are expected");
+            assert_eq!(*flags, 0, "no inherited or inheritable ACEs");
+            assert_eq!(*mask, 0x001f_01ff);
+            subjects.push(subject.as_str());
+        }
+        subjects.sort();
+        let mut expected = vec![user, "S-1-5-18", "S-1-5-32-544"];
+        expected.sort();
+        assert_eq!(subjects, expected);
+    }
+
+    #[test]
+    fn windows_binary_sids_validate_without_creating_files() {
+        let bytes = current_sid_bytes().expect("query current token SID without filesystem IO");
+        let user = LocalMemory::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(bytes[0], 1);
+        assert_eq!(bytes.len(), 8 + usize::from(bytes[1]) * 4);
+        assert_ne!(unsafe { IsValidSid(user.0) }, 0);
+        assert_eq!(unsafe { GetLengthSid(user.0) } as usize, bytes.len());
+        assert_eq!(
+            sid_string(user.0).unwrap(),
+            current_sid_string_impl().unwrap()
+        );
+        for (subauthorities, expected) in
+            [(&[18][..], "S-1-5-18"), (&[32, 544][..], "S-1-5-32-544")]
+        {
+            let sid = constant_sid(subauthorities).unwrap();
+            assert_ne!(unsafe { IsValidSid(sid.0) }, 0);
+            let length = unsafe { GetLengthSid(sid.0) } as usize;
+            assert_eq!(length, 8 + 4 * subauthorities.len());
+            let bytes = unsafe { std::slice::from_raw_parts(sid.0.cast::<u8>(), length) };
+            assert_eq!(bytes[0], 1);
+            assert_eq!(usize::from(bytes[1]), subauthorities.len());
+            assert_eq!(&bytes[2..8], &[0, 0, 0, 0, 0, 5]);
+            for (index, value) in subauthorities.iter().enumerate() {
+                assert_eq!(&bytes[8 + 4 * index..12 + 4 * index], &value.to_le_bytes());
+            }
+            assert_eq!(sid_string(sid.0).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn windows_absolute_private_descriptor_validates_without_creating_files() {
+        // Move the wrapper: all referenced allocations must remain stable and live.
+        let security = Box::new(descriptor().expect("construct pure in-memory private SD"));
+        let sd = security.as_ptr();
+        assert_ne!(unsafe { IsValidSecurityDescriptor(sd) }, 0);
+        let mut owner = null_mut();
+        let mut group = null_mut();
+        let mut defaulted = 1;
+        assert_ne!(
+            unsafe { GetSecurityDescriptorOwner(sd, &mut owner, &mut defaulted) },
+            0
+        );
+        assert_eq!(defaulted, 0);
+        assert_ne!(
+            unsafe { GetSecurityDescriptorGroup(sd, &mut group, &mut defaulted) },
+            0
+        );
+        assert_eq!(defaulted, 0);
+        let user = current_sid_string_impl().unwrap();
+        assert_eq!(sid_string(owner).unwrap(), user);
+        assert_eq!(sid_string(group).unwrap(), user);
+        let mut control = 0;
+        let mut revision = 0;
+        assert_ne!(
+            unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut revision) },
+            0
+        );
+        assert_eq!(revision, 1);
+        assert_ne!(control & SE_DACL_PRESENT, 0);
+        assert_ne!(control & SE_DACL_PROTECTED, 0);
+        let mut present = 0;
+        let mut acl = null_mut();
+        assert_ne!(
+            unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut acl, &mut defaulted) },
+            0
+        );
+        assert_ne!(present, 0);
+        assert_eq!(defaulted, 0);
+        assert!(!acl.is_null());
+        assert_ne!(unsafe { IsValidAcl(acl) }, 0);
+        let mut aces = Vec::new();
+        for index in 0..u32::from(unsafe { (*acl).AceCount }) {
+            let mut ace = null_mut();
+            assert_ne!(unsafe { GetAce(acl, index, &mut ace) }, 0);
+            let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+            let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast();
+            aces.push((
+                allowed.Header.AceType,
+                allowed.Header.AceFlags,
+                allowed.Mask,
+                sid_string(sid).unwrap(),
+            ));
+        }
+        assert_private_aces(&aces, &user);
+    }
+
+    struct SyntheticParent(std::path::PathBuf);
+    impl Drop for SyntheticParent {
+        fn drop(&mut self) {
+            // Exact synthetic objects only; never recurse into unknown children.
+            for name in ["child/nested.bin", "direct.bin"] {
+                if let Err(error) = std::fs::remove_file(self.0.join(name)) {
+                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
+                        panic!("remove known synthetic file: {error}");
+                    }
+                }
+            }
+            for path in [self.0.join("child"), self.0.clone()] {
+                if let Err(error) = std::fs::remove_dir(path) {
+                    if error.kind() != io::ErrorKind::NotFound && !std::thread::panicking() {
+                        panic!("remove known synthetic directory: {error}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn windows_protected_creation_blocks_dangerous_inherit_only_parent_ace() {
+        let root = SyntheticParent(
+            std::env::temp_dir().join(format!("furfolio-inherit-{}", uuid::Uuid::new_v4())),
+        );
+        let parent = Directory::open(&root.0, true).expect("create private synthetic parent");
+        let user = LocalMemory::from_bytes(current_sid_bytes().unwrap()).unwrap();
+        let system = constant_sid(&[18]).unwrap();
+        let admin = constant_sid(&[32, 544]).unwrap();
+        let authenticated_users = constant_sid(&[11]).unwrap();
+        let memory = LocalMemory::zeroed(size_of::<ACL>() + 4 * (8 + 68)).unwrap();
+        let acl = memory.0.cast::<ACL>();
+        unsafe {
+            assert_ne!(
+                InitializeAcl(acl, (size_of::<ACL>() + 4 * (8 + 68)) as u32, 2),
+                0
+            );
+            for sid in [&user, &system, &admin] {
+                assert_ne!(AddAccessAllowedAceEx(acl, 2, 0, 0x001f_01ff, sid.0), 0);
+            }
+            assert_ne!(
+                AddAccessAllowedAceEx(
+                    acl,
+                    2,
+                    OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                    0x001f_01ff,
+                    authenticated_users.0
+                ),
+                0
+            );
+        }
+        // Only this newly created synthetic parent's DACL is changed, never an ancestor.
+        let writable = unsafe {
+            ReOpenFile(
+                raw(&parent.file),
+                READ_CONTROL | 0x0004_0000,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            )
+        };
+        if writable as isize == -1 {
+            panic!(
+                "open synthetic parent WRITE_DAC: {}",
+                io::Error::last_os_error()
+            );
+        }
+        let writable = unsafe { File::from_raw_handle(writable) };
+        let result = unsafe {
+            SetSecurityInfo(
+                raw(&writable),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                acl,
+                null(),
+            )
+        };
+        assert_eq!(
+            result, 0,
+            "install dangerous inherit-only ACE on synthetic parent"
+        );
+        drop(writable);
+        let audit = security_summary(&parent.file).unwrap();
+        assert_eq!(audit.aces.len(), 4);
+        assert!(audit
+            .aces
+            .iter()
+            .any(|(_, flags, mask, subject)| *flags == 0x0b
+                && *mask == 0x001f_01ff
+                && subject == "S-1-5-11"));
+        verify_private(&parent.file)
+            .expect("inherit-only ACE does not grant access to parent itself");
+        let child = parent
+            .child("child", true)
+            .expect("protected child directory creation must succeed");
+        let direct = parent
+            .open_file("direct.bin", true)
+            .expect("protected direct file creation must succeed");
+        let nested = child
+            .open_file("nested.bin", true)
+            .expect("protected nested file creation must succeed");
+        let user = current_sid_string_impl().unwrap();
+        for file in [&child.file, &direct, &nested] {
+            let audit = security_summary(file).unwrap();
+            assert_eq!(audit.owner, user);
+            assert_eq!(audit.group, user);
+            assert!(audit.dacl_present && audit.dacl_protected);
+            assert_private_aces(&audit.aces, &user);
+        }
+        // All held handles close before the exact-object cleanup guard.
+    }
+}
+
 fn component(name: &str) -> io::Result<Vec<u16>> {
     if name.is_empty()
         || name == "."
@@ -495,7 +813,9 @@ fn open_at(
         root: raw(parent),
         name: &mut name,
         attributes: 0x40,
-        security: security.as_ref().map_or(null_mut(), |s| s.0),
+        security: security
+            .as_ref()
+            .map_or(null_mut(), PrivateSecurity::as_ptr),
         qos: null_mut(),
     };
     let mut handle = null_mut();
