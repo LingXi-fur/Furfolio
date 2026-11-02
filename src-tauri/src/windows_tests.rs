@@ -30,7 +30,15 @@ impl Fixture {
         let library = root.join("角色资料库 Unicode space");
         let destination = root.join("备份 destination");
         fs::create_dir(&destination).unwrap();
-        let db = Database::initialize(&library).unwrap();
+        // Attribute a runner denial to the exact platform_fs stage instead of letting
+        // every fixture-based test fail identically with "Access is denied".
+        let db = match Database::initialize(&library) {
+            Ok(db) => db,
+            Err(error) => panic!(
+                "fixture initialize failed: {error}; stages:\n{}",
+                platform_fs::diagnostic_stage()
+            ),
+        };
         Self {
             root,
             library,

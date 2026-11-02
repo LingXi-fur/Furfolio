@@ -945,6 +945,43 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
     let file = open_at(&directory.file, name, READ_FILE, FILE_OPEN, false, false)?;
     Ok((file, Some(directory)))
 }
+/// Runner-facing diagnostics only: report exactly which stage denies access so a
+/// real Windows failure can be attributed to creation, DACL write, or SD readback.
+#[cfg(test)]
+pub(crate) fn diagnostic_stage() -> String {
+    let root = std::env::temp_dir().join(format!("furfolio-diag-{}", uuid::Uuid::new_v4()));
+    let mut report = Vec::new();
+    let mut stage = |name: &str, result: io::Result<()>| {
+        report.push(format!(
+            "{name}: {}",
+            match &result {
+                Ok(()) => "ok".to_owned(),
+                Err(e) => format!("{e:?}"),
+            }
+        ));
+        result.is_ok()
+    };
+    stage("token_sid", current_sid_bytes().map(|_| ()));
+    match Directory::open(&root, true) {
+        Ok(directory) => {
+            report.push("walk_create: ok".to_owned());
+            stage(
+                "summary_root",
+                security_summary(&directory.file).map(|_| ()),
+            );
+            stage("verify_root", verify_private(&directory.file));
+            stage("child", directory.child("diag-child", true).map(|_| ()));
+            stage(
+                "open_file",
+                directory.open_file("diag.bin", true).map(|_| ()),
+            );
+        }
+        Err(error) => report.push(format!("walk_create: {error:?}")),
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    report.join("\n")
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;
@@ -967,6 +1004,12 @@ mod security_tests {
         let mut expected = vec![user, "S-1-5-18", "S-1-5-32-544"];
         expected.sort();
         assert_eq!(subjects, expected);
+    }
+
+    #[test]
+    fn windows_runner_denial_stage_is_attributed() {
+        let report = diagnostic_stage();
+        panic!("runner diagnostics:\n{report}");
     }
 
     #[test]

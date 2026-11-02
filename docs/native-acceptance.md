@@ -66,6 +66,7 @@ Windows media and backup development is in progress; the feature branch is not a
 | `acfd0b8` | Frontend and Clippy passed; backend tests still failed, including initialization `AccessDenied`. Root cause not established |
 | `61c7519`, `2d1a4fa` | Stopped at Windows compilation: missing feature/imports and incomplete SID refactoring. These changes have not verified ACL creation or media behavior |
 | `5e9ed62` | Windows compilation passed for the first time; strict Clippy then failed with a single `items_after_test_module` lint in `windows.rs`. Backend tests and the desktop build were not reached |
+| `324fa9b` | Frontend, formatting, and strict Clippy passed on Windows; tests then failed: 18 passed, 26 failed. Nearly all failures were `Access is denied` while the test fixture created its synthetic library root through the new private-directory path, including the hostile-ACE fixture itself. Root cause not established |
 
 The corresponding macOS CI jobs passed. That does not validate Windows-only code. No successful Windows media lifecycle, backup, or desktop build is claimed; WebView2 desktop acceptance is also separate. The earlier hypothesis that numeric SID strings are invalid SDDL was withdrawn: SDDL permits numeric SID strings, and the observed `AccessDenied` requires further diagnosis.
 
