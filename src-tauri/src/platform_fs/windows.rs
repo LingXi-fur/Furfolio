@@ -1016,7 +1016,7 @@ pub(crate) fn diagnostic_ntstatus() -> String {
     let root = std::env::temp_dir().join(format!("furfolio-nt-{}", uuid::Uuid::new_v4()));
     let mut out = Vec::new();
     out.push(format!("target: {}", root.display()));
-    let probe = |label: &str, private: bool| -> io::Result<()> {
+    let mut probe = |label: &str, private: bool| -> io::Result<()> {
         // Every early return must still emit the label line, or a runner failure
         // would silently drop one of the arms the attribution table depends on.
         let (drive, names) = match path_components(&root) {
@@ -1060,16 +1060,14 @@ pub(crate) fn diagnostic_ntstatus() -> String {
                 return Err(e);
             }
         };
-        let status = unsafe {
-            open_at(
-                &file,
-                &name,
-                if private { WRITE_DIR } else { READ_DIR },
-                FILE_OPEN_IF,
-                true,
-                private,
-            )
-        };
+        let status = open_at(
+            &file,
+            &name,
+            if private { WRITE_DIR } else { READ_DIR },
+            FILE_OPEN_IF,
+            true,
+            private,
+        );
         let line = match &status {
             Ok(_) => format!("{label}: ok"),
             Err(e) => format!("{label}: {e:?}"),
