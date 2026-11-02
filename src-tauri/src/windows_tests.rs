@@ -238,6 +238,38 @@ fn windows_hardlinked_source_is_rejected_without_touching_either_name() {
 }
 
 #[test]
+fn windows_created_objects_have_user_owner_protected_three_ace_dacl_no_inheritance() {
+    let f = Fixture::new();
+    let directory = platform_fs::Directory::open(&f.root.join("audit-root"), true).unwrap();
+    let mut file = directory.open_file("audit.bin", true).unwrap();
+    std::io::Write::write_all(&mut file, b"audit").unwrap();
+    file.sync_all().unwrap();
+    let child = directory.child("audit-child", true).unwrap();
+    drop(child);
+    for object in [
+        f.root.join("audit-root"),
+        f.root.join("audit-root/audit.bin"),
+        f.root.join("audit-root/audit-child"),
+    ] {
+        let handle = if object.is_dir() {
+            fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(&object)
+                .unwrap()
+        } else {
+            fs::File::open(&object).unwrap()
+        };
+        let (owner, group, dacl, ace_count) = platform_fs::security_summary(&handle).unwrap();
+        let user = platform_fs::current_sid_string().unwrap();
+        assert_eq!(owner, user);
+        assert_eq!(group, user);
+        assert_eq!(ace_count, 3);
+        assert!(dacl);
+    }
+}
+
+#[test]
 fn windows_held_parent_cannot_be_renamed_and_created_file_has_one_full_id() {
     let f = Fixture::new();
     let private = f.root.join("private-parent");
