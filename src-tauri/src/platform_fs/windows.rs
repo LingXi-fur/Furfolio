@@ -17,11 +17,10 @@ use windows_sys::Win32::{
     Security::{
         AddAccessAllowedAceEx,
         Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT},
-        ConvertStringSidToSidW, GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation,
-        InitializeAcl, IsValidSid, SetSecurityDescriptorDacl, SetSecurityDescriptorGroup,
-        SetSecurityDescriptorOwner, TokenUser, ACL, DACL_SECURITY_INFORMATION,
-        GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, TOKEN_QUERY,
-        TOKEN_USER,
+        GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation, InitializeAcl, IsValidSid,
+        SetSecurityDescriptorDacl, SetSecurityDescriptorGroup, SetSecurityDescriptorOwner,
+        TokenUser, ACL, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
+        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, TOKEN_QUERY, TOKEN_USER,
     },
     Storage::FileSystem::{
         CreateFileW, FileBasicInfo, FileDispositionInfo, FileIdInfo, FileStandardInfo,
@@ -249,27 +248,25 @@ fn current_sid() -> io::Result<String> {
         return Err(io::Error::last_os_error());
     }
     let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
-    sid_string(user.User.Sid)
+    let length = unsafe { GetLengthSid(user.User.Sid) } as usize;
+    if !(8..=68).contains(&length) {
+        return Err(unsafe_entry());
+    }
+    // SAFETY: the token's own SID is a valid OS SID; bounded copy into owned storage.
+    let bytes = unsafe { std::slice::from_raw_parts(user.User.Sid.cast::<u8>(), length) }.to_vec();
+    Ok(bytes)
 }
-fn sid_bytes() -> io::Result<(Vec<u8>, String)> {
-    let sid = current_sid()?;
-    let text: Vec<u16> = sid.encode_utf16().chain(Some(0)).collect();
-    let mut parsed = null_mut();
-    if unsafe { ConvertStringSidToSidW(text.as_ptr(), &mut parsed) } == 0 {
-        return Err(io::Error::last_os_error());
+fn constant_sid(subauthorities: &[u32]) -> LocalMemory {
+    // Builds a classic revision-1 SID with a 5-byte NT authority (decimal 5).
+    let mut bytes = vec![0u8; 8 + 4 * subauthorities.len()];
+    bytes[0] = 1;
+    bytes[1] = subauthorities.len() as u8;
+    bytes[2..8].copy_from_slice(&[0, 0, 0, 0, 5]);
+    for (index, value) in subauthorities.iter().enumerate() {
+        bytes[8 + 4 * index..12 + 4 * index].copy_from_slice(&value.to_le_bytes());
     }
-    let _memory = LocalMemory(parsed.cast());
-    // SAFETY: IsValidSid accepts only a well-formed OS SID; GetLengthSid returns
-    // its exact byte size, bounded here before copying into owned storage.
-    if unsafe { IsValidSid(parsed) } == 0 {
-        return Err(unsafe_entry());
-    }
-    let length = unsafe { GetLengthSid(parsed) } as usize;
-    if length < 8 || length > 68 {
-        return Err(unsafe_entry());
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(parsed.cast::<u8>(), length) }.to_vec();
-    Ok((bytes, sid))
+    // SAFETY: the assembled bytes are a well-formed SID by construction above.
+    LocalMemory::from_bytes(bytes).expect("constant SID allocation")
 }
 /// Absolute SECURITY_DESCRIPTOR: owner=group=current user, protected DACL granting
 /// FILE_ALL_ACCESS to the current user, SYSTEM and Administrators only. The ACL is
@@ -277,27 +274,11 @@ fn sid_bytes() -> io::Result<(Vec<u8>, String)> {
 /// Dacl offset points just past the fixed header, so no separate lifetime is needed.
 fn descriptor() -> io::Result<LocalMemory> {
     const ALL: u32 = 0x001f_01ff;
-    const ADMINISTRATORS: &str = "S-1-5-32-544";
-    const SYSTEM: &str = "S-1-5-18";
-    fn parse(text: &str) -> io::Result<LocalMemory> {
-        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-        let mut parsed = null_mut();
-        if unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut parsed) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let memory = LocalMemory(parsed.cast());
-        // SAFETY: the parser returns a well-formed OS SID or fails; bounded copy below.
-        if unsafe { IsValidSid(parsed) } == 0 {
-            return Err(unsafe_entry());
-        }
-        let length = unsafe { GetLengthSid(parsed) } as usize;
-        if length < 8 || length > 68 {
-            return Err(unsafe_entry());
-        }
-        Ok(memory)
-    }
-    let (user_bytes, _) = sid_bytes()?;
-    let user = LocalMemory::from_bytes(user_bytes)?;
+    const ADMINISTRATORS: [u32; 2] = [32, 544];
+    const SYSTEM: [u32; 1] = [18];
+    let user = LocalMemory::from_bytes(sid_bytes()?)?;
+    let system = constant_sid(&SYSTEM);
+    let administrators = constant_sid(&ADMINISTRATORS);
     let system = parse(SYSTEM)?;
     let administrators = parse(ADMINISTRATORS)?;
     const HEADER: usize = size_of::<u32>() * 6;
