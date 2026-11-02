@@ -549,7 +549,7 @@ describe("App", () => {
     expect(echoEntry).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("button", { name: /contents: echo · record 02/i })).toHaveAttribute("aria-disabled", "true");
 
-    echoRequest.resolve(echo);
+    await act(async () => { echoRequest.resolve(echo); });
     expect(await screen.findByRole("heading", { name: "Echo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /character index/i })).toHaveFocus();
 
