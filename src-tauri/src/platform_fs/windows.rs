@@ -1017,37 +1017,67 @@ pub(crate) fn diagnostic_ntstatus() -> String {
     let mut out = Vec::new();
     out.push(format!("target: {}", root.display()));
     let probe = |label: &str, private: bool| -> io::Result<()> {
-        let (drive, names) = path_components(&root)?;
+        // Every early return must still emit the label line, or a runner failure
+        // would silently drop one of the arms the attribution table depends on.
+        let (drive, names) = match path_components(&root) {
+            Ok(parts) => parts,
+            Err(e) => {
+                out.push(format!("{label}: setup {e:?}"));
+                return Err(e);
+            }
+        };
         let mut names = names;
-        let name = names.pop().ok_or_else(unsafe_entry)?;
-        let mut file = Directory::walk(
-            &names.iter().fold(std::path::PathBuf::from(format!(
-                "{}{}:",
-                std::path::MAIN_SEPARATOR,
-                drive as char
-            ))),
+        let name = match names.pop() {
+            Some(name) => name,
+            None => {
+                let e = unsafe_entry();
+                out.push(format!("{label}: setup {e:?}"));
+                return Err(e);
+            }
+        };
+        let file = match Directory::walk(
+            &names.iter().fold(
+                std::path::PathBuf::from(format!(
+                    "{}:{}",
+                    drive as char,
+                    std::path::MAIN_SEPARATOR
+                )),
+                |parent, name| parent.join(name),
+            ),
             false,
             false,
-        )?
-        .file()
-        .try_clone()?;
+        ) {
+            Ok(directory) => directory,
+            Err(e) => {
+                out.push(format!("{label}: ancestor {e:?}"));
+                return Err(e);
+            }
+        };
+        let file = match file.file().try_clone() {
+            Ok(handle) => handle,
+            Err(e) => {
+                out.push(format!("{label}: clone {e:?}"));
+                return Err(e);
+            }
+        };
         let status = unsafe {
-            let result = open_at(
+            open_at(
                 &file,
                 &name,
                 if private { WRITE_DIR } else { READ_DIR },
                 FILE_OPEN_IF,
                 true,
                 private,
-            );
-            std::mem::drop(&mut file);
-            result
+            )
         };
+        let line = match &status {
+            Ok(_) => format!("{label}: ok"),
+            Err(e) => format!("{label}: {e:?}"),
+        };
+        drop(status);
+        drop(file);
         let _ = std::fs::remove_dir(&root);
-        match status {
-            Ok(()) => out.push(format!("{label}: ok")),
-            Err(e) => out.push(format!("{label}: {e:?}")),
-        }
+        out.push(line);
         Ok(())
     };
     let _ = probe("nt_create_private", true);
