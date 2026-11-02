@@ -634,6 +634,55 @@ fn open_at(
     }
     Ok(file)
 }
+/// Reopen the directory object itself (no name component) with a different access
+/// mask, relative to an existing handle. Test-only: the dangerous-ACE fixture uses
+/// it for a WRITE_DAC upgrade after the runner denied every ReOpenFile call.
+#[cfg(test)]
+fn open_self(parent: &File, access: u32) -> io::Result<File> {
+    let mut name = UnicodeString {
+        length: 0,
+        maximum_length: 0,
+        buffer: null_mut(),
+    };
+    let attributes = ObjectAttributes {
+        length: size_of::<ObjectAttributes>() as u32,
+        root: raw(parent),
+        name: &mut name,
+        attributes: 0x40,
+        security: null_mut(),
+        qos: null_mut(),
+    };
+    let mut handle = null_mut();
+    let mut status = IoStatus {
+        status: 0,
+        information: 0,
+    };
+    // SAFETY: an empty relative name addresses the object the root handle refers to;
+    // all buffers are stack- or handle-backed and live through this synchronous call.
+    let result = unsafe {
+        NtCreateFile(
+            &mut handle,
+            access,
+            &attributes,
+            &mut status,
+            null(),
+            0x80,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE,
+            null(),
+            0,
+        )
+    };
+    if result < 0 {
+        return Err(status_error(result));
+    }
+    let file = File::from(unsafe { OwnedHandle::from_raw_handle(handle) });
+    if !file_state(&file)?.directory {
+        return Err(unsafe_entry());
+    }
+    Ok(file)
+}
 fn volume(file: &File, drive: u8) -> io::Result<()> {
     let root = [u16::from(drive), b':' as u16, b'\\' as u16, 0];
     if unsafe { GetDriveTypeW(root.as_ptr()) } != 3 {
@@ -881,7 +930,13 @@ pub(crate) struct LibraryLock {
     _file: File,
 }
 pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::AppError> {
-    let root = Directory::open(path.parent().ok_or_else(unsafe_entry)?, false)?;
+    // Runner attribution aid: which lock stage fails. Labels carry no paths and are
+    // removed once the runner-side denial stage is identified.
+    let attributed = |name: &str, error: io::Error| {
+        crate::error::AppError::from(io::Error::other(format!("lock:{name}:{error}")))
+    };
+    let root = Directory::open(path.parent().ok_or_else(unsafe_entry)?, false)
+        .map_err(|e| attributed("parent", e))?;
     let name = path
         .with_extension("media-lock")
         .file_name()
@@ -895,8 +950,9 @@ pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::App
         FILE_OPEN_IF,
         false,
         true,
-    )?;
-    verify_private(&file)?;
+    )
+    .map_err(|e| attributed("open_lock", e))?;
+    verify_private(&file).map_err(|e| attributed("verify_lock", e))?;
     let mut overlapped = unsafe { std::mem::zeroed::<OVERLAPPED>() };
     // SAFETY: live synchronous file, zero offset, fixed one-byte range, no wait.
     if unsafe {
@@ -914,7 +970,7 @@ pub(crate) fn lock_library(path: &Path) -> Result<LibraryLock, crate::error::App
         return Err(if e.raw_os_error() == Some(33) {
             crate::error::AppError::MediaBusy
         } else {
-            e.into()
+            io::Error::other(format!("lock:lockfileex:{e}")).into()
         });
     }
     Ok(LibraryLock {
@@ -934,132 +990,6 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
     let file = open_at(&directory.file, name, READ_FILE, FILE_OPEN, false, false)?;
     Ok((file, Some(directory)))
 }
-/// Runner-facing diagnostics only: report exactly which stage denies access so a
-/// real Windows failure can be attributed to creation, DACL write, or SD readback.
-#[cfg(test)]
-pub(crate) fn diagnostic_stage() -> String {
-    let root = std::env::temp_dir().join(format!("furfolio-diag-{}", uuid::Uuid::new_v4()));
-    let mut report = Vec::new();
-    fn stage(report: &mut Vec<String>, name: &str, result: io::Result<()>) {
-        report.push(format!(
-            "{name}: {}",
-            match &result {
-                Ok(()) => "ok".to_owned(),
-                Err(e) => format!("{e:?}"),
-            }
-        ));
-    }
-    stage(&mut report, "token_sid", current_sid_bytes().map(|_| ()));
-    // Control arm: the same parent path and name through the plain Win32 API. A
-    // success here while our NtCreateFile arm fails isolates the failure to this
-    // call's parameters (SD/access/options), not to the runner's %TEMP% ACL.
-    stage(&mut report, "std_create_dir", std::fs::create_dir(&root));
-    let _ = std::fs::remove_dir(&root);
-    stage(
-        &mut report,
-        "std_dir_exists_parent",
-        std::fs::read_dir(std::env::temp_dir()).map(|_| ()),
-    );
-    match Directory::open(&root, true) {
-        Ok(directory) => {
-            report.push("walk_create: ok".to_owned());
-            stage(
-                &mut report,
-                "summary_root",
-                security_summary(&directory.file).map(|_| ()),
-            );
-            stage(&mut report, "verify_root", verify_private(&directory.file));
-            stage(
-                &mut report,
-                "child",
-                directory.child("diag-child", true).map(|_| ()),
-            );
-            stage(
-                &mut report,
-                "open_file",
-                directory.open_file("diag.bin", true).map(|_| ()),
-            );
-        }
-        Err(error) => report.push(format!("walk_create: {error:?}")),
-    }
-    let _ = std::fs::remove_dir_all(&root);
-    report.join("\n")
-}
-
-/// Raw single NtCreateFile probe with the exact parameters Directory::open uses,
-/// reported verbatim so a runner denial can be attributed to one argument.
-#[cfg(test)]
-pub(crate) fn diagnostic_ntstatus() -> String {
-    let root = std::env::temp_dir().join(format!("furfolio-nt-{}", uuid::Uuid::new_v4()));
-    let mut out = Vec::new();
-    out.push(format!("target: {}", root.display()));
-    let mut probe = |label: &str, private: bool| -> io::Result<()> {
-        // Every early return must still emit the label line, or a runner failure
-        // would silently drop one of the arms the attribution table depends on.
-        let (drive, names) = match path_components(&root) {
-            Ok(parts) => parts,
-            Err(e) => {
-                out.push(format!("{label}: setup {e:?}"));
-                return Err(e);
-            }
-        };
-        let mut names = names;
-        let name = match names.pop() {
-            Some(name) => name,
-            None => {
-                let e = unsafe_entry();
-                out.push(format!("{label}: setup {e:?}"));
-                return Err(e);
-            }
-        };
-        let file = match Directory::walk(
-            &names.iter().fold(
-                std::path::PathBuf::from(format!(
-                    "{}:{}",
-                    drive as char,
-                    std::path::MAIN_SEPARATOR
-                )),
-                |parent, name| parent.join(name),
-            ),
-            false,
-            false,
-        ) {
-            Ok(directory) => directory,
-            Err(e) => {
-                out.push(format!("{label}: ancestor {e:?}"));
-                return Err(e);
-            }
-        };
-        let file = match file.file().try_clone() {
-            Ok(handle) => handle,
-            Err(e) => {
-                out.push(format!("{label}: clone {e:?}"));
-                return Err(e);
-            }
-        };
-        let status = open_at(
-            &file,
-            &name,
-            if private { WRITE_DIR } else { READ_DIR },
-            FILE_OPEN_IF,
-            true,
-            private,
-        );
-        let line = match &status {
-            Ok(_) => format!("{label}: ok"),
-            Err(e) => format!("{label}: {e:?}"),
-        };
-        drop(status);
-        drop(file);
-        let _ = std::fs::remove_dir(&root);
-        out.push(line);
-        Ok(())
-    };
-    let _ = probe("nt_create_private", true);
-    let _ = probe("nt_create_public", false);
-    out.join("\n")
-}
-
 #[cfg(test)]
 mod security_tests {
     use super::*;
@@ -1068,7 +998,6 @@ mod security_tests {
         GetSecurityDescriptorOwner, CONTAINER_INHERIT_ACE, INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE,
         PROTECTED_DACL_SECURITY_INFORMATION,
     };
-    use windows_sys::Win32::Storage::FileSystem::ReOpenFile;
 
     fn assert_private_aces(aces: &[(u8, u8, u32, String)], user: &str) {
         assert_eq!(aces.len(), 3);
@@ -1083,13 +1012,6 @@ mod security_tests {
         let mut expected = vec![user, "S-1-5-18", "S-1-5-32-544"];
         expected.sort();
         assert_eq!(subjects, expected);
-    }
-
-    #[test]
-    fn windows_runner_denial_stage_is_attributed() {
-        let report = diagnostic_stage();
-        let raw = diagnostic_ntstatus();
-        panic!("runner diagnostics:\n{report}\n{raw}");
     }
 
     #[test]
@@ -1232,21 +1154,11 @@ mod security_tests {
             );
         }
         // Only this newly created synthetic parent's DACL is changed, never an ancestor.
-        let writable = unsafe {
-            ReOpenFile(
-                raw(&parent.file),
-                READ_DIR | WRITE_DAC,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            )
-        };
-        if writable as isize == -1 {
-            panic!(
-                "open synthetic parent WRITE_DAC: {}",
-                io::Error::last_os_error()
-            );
-        }
-        let writable = unsafe { File::from_raw_handle(writable) };
+        // The runner denied every ReOpenFile call, so request the WRITE_DAC handle with
+        // NtCreateFile on the held READ_DIR ancestor instead; the parent was created by
+        // this process and its descriptor allows the current user full control. An empty
+        // relative name addresses the root-directory object itself.
+        let writable = open_self(&parent.file, WRITE_DAC).expect("open synthetic parent WRITE_DAC");
         let result = unsafe {
             SetSecurityInfo(
                 raw(&writable),
