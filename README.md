@@ -116,9 +116,11 @@ SQLite on this device
 ### Start the desktop app
 
 ```sh
-npm install
+npm ci --ignore-scripts --include=optional
 npm run tauri -- dev
 ```
+
+Keep platform-specific optional packages enabled. The locked toolchain uses their prebuilt binaries without dependency lifecycle scripts; do not copy `node_modules` between platforms.
 
 ### Run frontend checks
 
