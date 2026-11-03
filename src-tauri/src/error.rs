@@ -19,22 +19,22 @@ pub struct CommandError {
 #[derive(Debug)]
 pub(crate) enum BackupError {
     Busy,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     Pending,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     Integrity,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     Limit,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     Timeout,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     NoSpace,
     Destination,
     Unsupported,
     Failed,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     DurabilityUncertain(String),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     CleanupPending(String),
 }
 
@@ -104,22 +104,22 @@ impl CommandError {
             }
             AppError::Backup(error) => match error {
                 BackupError::Busy => ("backupBusy", "Another library or media export operation is in progress"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::Pending => ("backupPending", "Managed media cleanup must finish before exporting"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::Integrity => ("backupIntegrity", "The library could not pass backup integrity checks"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::Limit => ("backupLimit", "The library exceeds the supported backup limits"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::Timeout => ("backupTimeout", "The backup exceeded its supported time limit"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::NoSpace => ("backupNoSpace", "The destination has insufficient space for this backup"),
                 BackupError::Destination => ("backupDestination", "Select a safe existing backup destination outside this library"),
-                BackupError::Unsupported => ("backupUnsupported", "Safe backup export is supported only on macOS"),
+                BackupError::Unsupported => ("backupUnsupported", "Safe backup export is not supported on this platform"),
                 BackupError::Failed => ("backupFailed", "The backup could not be exported"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::DurabilityUncertain(_) => ("backupDurabilityUncertain", "The backup was published but its durability could not be confirmed. Keep and verify the published backup; do not blindly retry"),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 BackupError::CleanupPending(_) => ("backupCleanupPending", "An incomplete backup remains and needs safe manual inspection"),
             },
             AppError::Database(_) | AppError::Io(_) => (
@@ -132,7 +132,7 @@ impl CommandError {
             message: message.into(),
             applied: matches!(error, AppError::CleanupPending { applied: true }).then_some(true),
             published: {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 {
                     matches!(error, AppError::Backup(BackupError::DurabilityUncertain(_)))
                         .then_some(true)
@@ -143,7 +143,7 @@ impl CommandError {
                 }
             },
             directory_name: match error {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 AppError::Backup(
                     BackupError::DurabilityUncertain(name) | BackupError::CleanupPending(name),
                 ) => Some(name.clone()),

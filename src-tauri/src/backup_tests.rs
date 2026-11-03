@@ -359,6 +359,7 @@ fn refuses_pending_orphan_missing_ledger_and_invalid_ready_state_without_repair(
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn rejects_corrupt_symlink_hardlink_size_and_hash_media_without_final_output() {
     use std::os::unix::fs::symlink;
     for variant in ["symlink", "hardlink", "size", "hash", "missing"] {
@@ -411,6 +412,7 @@ fn rejects_corrupt_symlink_hardlink_size_and_hash_media_without_final_output() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn rejects_source_descendant_symlink_and_writable_parent_without_chmod() {
     use std::os::unix::fs::{symlink, PermissionsExt};
     let f = Fixture::new();
@@ -696,6 +698,7 @@ fn unknown_staging_entry_is_not_recursively_deleted() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn final_database_opens_immutable_readonly_without_sidecars_and_has_private_modes() {
     use std::os::unix::fs::PermissionsExt;
     let f = Fixture::new();
@@ -766,6 +769,7 @@ fn directory_injection_after_readback_is_rejected_and_preserved_for_inspection()
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn source_database_symlink_never_exports_another_valid_library() {
     use std::os::unix::fs::symlink;
     let f = Fixture::new();
@@ -877,6 +881,7 @@ fn backup_step_busy_locked_and_total_call_budget_are_bounded() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn source_stream_rejects_midcopy_length_metadata_and_link_changes() {
     use std::io::Write;
     use std::os::unix::fs::MetadataExt;
