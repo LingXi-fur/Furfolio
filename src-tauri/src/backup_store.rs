@@ -559,8 +559,11 @@ mod windows {
 
     pub(crate) struct Staging {
         parent: Parent,
-        directory: platform_fs::Directory,
+        // Declared before the stage root so any drop path releases the media
+        // handle first: Windows deletion resolves only at last close, and an
+        // empty stage must never linger behind its still-open child.
         media: Option<platform_fs::Directory>,
+        directory: platform_fs::Directory,
         pub partial: String,
         pub final_name: String,
         files: Vec<Created>,
@@ -778,7 +781,7 @@ mod windows {
             for entry in self.files.iter().rev() {
                 options.check()?;
                 let directory = self.directory_for(entry.media)?;
-                let mut file = directory
+                let file = directory
                     .open_mutable(&entry.name)
                     .map_err(|_| pending(&self.partial))?;
                 let state = platform_fs::file_state(&file).map_err(|_| pending(&self.partial))?;

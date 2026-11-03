@@ -131,16 +131,10 @@ impl CommandError {
             code: code.into(),
             message: message.into(),
             applied: matches!(error, AppError::CleanupPending { applied: true }).then_some(true),
-            published: {
+            published: match error {
                 #[cfg(any(target_os = "macos", windows))]
-                {
-                    matches!(error, AppError::Backup(BackupError::DurabilityUncertain(_)))
-                        .then_some(true)
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    None
-                }
+                AppError::Backup(BackupError::DurabilityUncertain(_)) => Some(true),
+                _ => None,
             },
             directory_name: match error {
                 #[cfg(any(target_os = "macos", windows))]

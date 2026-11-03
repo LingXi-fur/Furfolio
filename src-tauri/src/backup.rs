@@ -148,8 +148,13 @@ fn failure(error: BackupError) -> AppError {
 }
 #[cfg(any(target_os = "macos", windows))]
 pub(crate) fn output_error(error: std::io::Error) -> AppError {
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     if error.raw_os_error() == Some(libc::ENOSPC) {
+        return failure(BackupError::NoSpace);
+    }
+    // Windows reports disk-full as one OS error code (0x70 = ERROR_DISK_FULL).
+    #[cfg(windows)]
+    if error.raw_os_error() == Some(112) {
         return failure(BackupError::NoSpace);
     }
     failure(BackupError::Failed)
