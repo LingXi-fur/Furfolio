@@ -215,6 +215,16 @@ pub(crate) fn export_with_options(
         options.check()?;
         let _media = db.lock_media().map_err(|e| match e {
             AppError::MediaBusy => failure(BackupError::Busy),
+            // TODO(runner-diagnostic): temporary error surfacing for the Windows
+            // backup RED loop; reverts to Integrity once the cause is proven.
+            #[cfg(all(test, windows))]
+            other => {
+                let detail = format!("{other:?}");
+                return Err(failure(BackupError::CleanupPending(
+                    detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
+                )));
+            }
+            #[cfg(not(all(test, windows)))]
             _ => failure(BackupError::Integrity),
         })?;
         let parent = crate::backup_store::Parent::open(selected, db.library_root()?)?;
@@ -380,6 +390,16 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
     check()?;
     let (source, identity) = db.open_backup_source().map_err(|e| match e {
         AppError::Database(e) => sql_error(e),
+        // TODO(runner-diagnostic): temporary error surfacing for the Windows
+        // backup RED loop; reverts to Integrity once the cause is proven.
+        #[cfg(all(test, windows))]
+        other => {
+            let detail = format!("{other:?}");
+            return Err(failure(BackupError::CleanupPending(
+                detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
+            )));
+        }
+        #[cfg(not(all(test, windows)))]
         _ => failure(BackupError::Integrity),
     })?;
     source.execute_batch("BEGIN DEFERRED").map_err(sql_error)?;
@@ -473,7 +493,22 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
     }
     identity
         .verify(&source)
-        .map_err(|_| failure(BackupError::Integrity))?;
+        // TODO(runner-diagnostic): temporary error surfacing for the Windows
+        // backup RED loop; reverts to Integrity once the cause is proven.
+        .map_err(|e| {
+            #[cfg(all(test, windows))]
+            {
+                let detail = format!("{e:?}");
+                return Err(failure(BackupError::CleanupPending(
+                    detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
+                )));
+            }
+            #[cfg(not(all(test, windows)))]
+            {
+                let _ = &e;
+                failure(BackupError::Integrity)
+            }
+        })?;
     source.execute_batch("ROLLBACK").map_err(sql_error)?;
     drop(source);
     check()?;
