@@ -21,13 +21,13 @@ pub struct Store {
     dir: Directory,
 }
 impl Store {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     pub(crate) fn open_existing(root: &Path) -> Result<Self, AppError> {
         Ok(Self {
             dir: Directory::open(root, false)?.child("media", false)?,
         })
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     pub(crate) fn copy_verified(
         &self,
         name: &str,
@@ -169,20 +169,19 @@ pub fn read_source(path: &Path) -> Result<Vec<u8>, AppError> {
     read_regular(&mut file, MAX_SOURCE)
 }
 
-/// Capture a no-follow source descriptor and verify SQLite's actual Unix VFS identity.
-#[cfg(target_os = "macos")]
+/// Capture a no-follow source descriptor and verify SQLite's actual VFS identity.
+#[cfg(any(target_os = "macos", windows))]
 pub(crate) struct SourceDatabase {
     parent: Directory,
     file: File,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 impl SourceDatabase {
     pub(crate) fn open(root: &Path) -> Result<Self, AppError> {
-        use std::os::unix::fs::MetadataExt;
         let parent = Directory::open(root, false)?;
         let file = parent.open_file("furfolio.sqlite3", false)?;
-        let m = file.metadata()?;
-        if !m.is_file() || m.nlink() != 1 || m.uid() != unsafe { libc::geteuid() } {
+        let state = platform_fs::file_state(&file)?;
+        if state.directory || state.links != 1 || !platform_fs::is_private(&file)? {
             return Err(unsafe_entry().into());
         }
         Ok(Self { parent, file })
@@ -196,20 +195,6 @@ impl SourceDatabase {
         {
             return Err(unsafe_entry().into());
         }
-        let mut moved: libc::c_int = 0;
-        // SAFETY: connection owns a live SQLite handle, main is static, HAS_MOVED
-        // writes one c_int and checks SQLite's own Unix VFS fd against its named inode.
-        let result = unsafe {
-            rusqlite::ffi::sqlite3_file_control(
-                connection.handle(),
-                c"main".as_ptr(),
-                rusqlite::ffi::SQLITE_FCNTL_HAS_MOVED,
-                (&mut moved as *mut libc::c_int).cast(),
-            )
-        };
-        if result != rusqlite::ffi::SQLITE_OK || moved != 0 {
-            return Err(unsafe_entry().into());
-        }
-        Ok(())
+        platform_fs::verify_vfs_connection(&self.file, connection)
     }
 }

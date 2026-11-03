@@ -26,11 +26,11 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{
         CreateFileW, FileBasicInfo, FileDispositionInfo, FileIdInfo, FileStandardInfo,
-        GetDriveTypeW, GetFileInformationByHandleEx, GetVolumeInformationByHandleW, LockFileEx,
-        SetFileInformationByHandle, FILE_BASIC_INFO, FILE_DISPOSITION_INFO,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FILE_STANDARD_INFO, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY,
-        OPEN_EXISTING,
+        GetDiskFreeSpaceExW, GetDriveTypeW, GetFileInformationByHandleEx,
+        GetVolumeInformationByHandleW, LockFileEx, SetFileInformationByHandle, FILE_BASIC_INFO,
+        FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_ID_INFO, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO,
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, OPEN_EXISTING,
     },
     System::{
         Memory::{LocalAlloc, LMEM_FIXED, LMEM_ZEROINIT},
@@ -46,6 +46,7 @@ use windows_sys::Win32::Security::{
 
 const READ_CONTROL: u32 = 0x0002_0000;
 const DELETE: u32 = 0x0001_0000;
+const FILE_SHARE_DELETE: u32 = 0x0000_0004;
 const SYNCHRONIZE: u32 = 0x0010_0000;
 const READ_DIR: u32 = READ_CONTROL | SYNCHRONIZE | 0x81 | 0x20;
 const WRITE_DIR: u32 = READ_DIR | 0x6;
@@ -153,7 +154,24 @@ fn query<T>(file: &File, class: i32) -> io::Result<T> {
     Ok(unsafe { value.assume_init() })
 }
 pub(crate) fn identity(file: &File) -> io::Result<Identity> {
-    let info: FILE_ID_INFO = query(file, FileIdInfo)?;
+    identity_raw(raw(file))
+}
+fn identity_raw(handle: HANDLE) -> io::Result<Identity> {
+    let mut value = MaybeUninit::<FILE_ID_INFO>::uninit();
+    // SAFETY: callers pair FileIdInfo with its documented fixed-size struct; the
+    // handle is borrowed live and storage is aligned, writable and exactly sized.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            value.as_mut_ptr().cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let info = unsafe { value.assume_init() };
     Ok(Identity {
         volume: info.VolumeSerialNumber,
         file: info.FileId.Identifier,
@@ -463,6 +481,22 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
 pub(crate) fn verify_private(file: &File) -> io::Result<()> {
     verify_acl(file, false)
 }
+/// Ancestor trust rules for a user-chosen folder that is not application-private.
+pub(crate) fn verify_ancestor(file: &File) -> io::Result<()> {
+    verify_acl(file, true)
+}
+/// A final object is private when its owner is the current user with a protected
+/// three-ACE DACL; the ACL check itself carries the verdict.
+pub(crate) fn is_private(file: &File) -> io::Result<bool> {
+    Ok(verify_acl(file, false).is_ok())
+}
+/// Verify SQLite's win32 VFS uses the exact OS handle identity captured earlier.
+pub(crate) fn verify_vfs_connection(
+    file: &File,
+    connection: &rusqlite::Connection,
+) -> Result<(), crate::error::AppError> {
+    verify_sqlite_vfs_handle(file, connection)
+}
 /// Test-only audit of the security descriptor returned by the filesystem.
 #[cfg(test)]
 pub(crate) struct SecuritySummary {
@@ -609,7 +643,7 @@ fn open_at(
             &mut status,
             null(),
             0x80,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             disposition,
             FILE_OPEN_REPARSE_POINT
                 | FILE_SYNCHRONOUS_IO_NONALERT
@@ -934,6 +968,162 @@ pub(crate) fn open_source(path: &Path) -> io::Result<(File, Option<Directory>)> 
     // cannot redirect the read; single-link and metadata checks are enforced on handle.
     let file = open_at(&directory.file, name, READ_FILE, FILE_OPEN, false, false)?;
     Ok((file, Some(directory)))
+}
+
+/// Open one existing directory by validated component walk without private rules.
+pub(crate) fn open_directory(path: &Path) -> io::Result<Directory> {
+    Directory::walk(path, false, false)
+}
+
+/// Validated drive letter and component names of an absolute local NTFS path.
+pub(crate) fn path_parts(path: &Path) -> io::Result<(u8, Vec<String>)> {
+    path_components(path)
+}
+
+/// Open the validated drive root of the destination volume for identity checks.
+pub(crate) fn drive_root(drive: u8) -> io::Result<Directory> {
+    Directory::from_drive(drive)
+}
+impl Directory {
+    fn from_drive(drive: u8) -> io::Result<Self> {
+        let root = [
+            b'\\' as u16,
+            b'\\' as u16,
+            b'?' as u16,
+            b'\\' as u16,
+            u16::from(drive),
+            b':' as u16,
+            b'\\' as u16,
+            0,
+        ];
+        let handle = unsafe {
+            CreateFileW(
+                root.as_ptr(),
+                READ_DIR,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                null_mut(),
+            )
+        };
+        if handle as isize == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let file = File::from(unsafe { OwnedHandle::from_raw_handle(handle) });
+        volume(&file, drive)?;
+        if !file_state(&file)?.directory {
+            return Err(unsafe_entry());
+        }
+        verify_acl(&file, true)?;
+        Ok(Self {
+            file,
+            ancestors: Vec::new(),
+        })
+    }
+}
+
+/// Open one existing child directory under held ancestor rules.
+pub(crate) fn open_child_directory(parent: &Directory, name: &str) -> io::Result<Directory> {
+    let file = open_at(parent.file(), name, READ_DIR, FILE_OPEN, true, false)?;
+    verify_acl(&file, true)?;
+    let mut ancestors = parent.ancestors.clone();
+    ancestors.push(Arc::new(parent.file.try_clone()?));
+    Ok(Directory { file, ancestors })
+}
+
+/// Create one new private child directory whose held handle can rename or delete it.
+/// DELETE rides on the creating handle: reopening by name would collide with the
+/// still-open creator handle's share mode, and the identity must be the one verified.
+pub(crate) fn create_private_directory(parent: &Directory, name: &str) -> io::Result<Directory> {
+    let file = open_at(
+        parent.file(),
+        name,
+        WRITE_DIR | DELETE,
+        FILE_CREATE,
+        true,
+        true,
+    )?;
+    verify_private(&file)?;
+    let mut ancestors = parent.ancestors.clone();
+    ancestors.push(Arc::new(parent.file.try_clone()?));
+    Ok(Directory { file, ancestors })
+}
+
+/// Mark this verified, held directory for deletion at last handle close.
+pub(crate) fn mark_directory_deleted(directory: &Directory) -> io::Result<()> {
+    mark_deleted(directory.file(), true)
+}
+
+/// Mark the verified object behind this handle for deletion at last close.
+pub(crate) fn mark_deleted(file: &File, directory: bool) -> io::Result<()> {
+    let state = file_state(file)?;
+    if state.directory != directory || (!directory && state.links != 1) {
+        return Err(unsafe_entry());
+    }
+    let info = FILE_DISPOSITION_INFO { DeleteFile: 1 };
+    // SAFETY: fixed information class with its documented struct; handle stays live.
+    if unsafe {
+        SetFileInformationByHandle(
+            raw(file),
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Available bytes on the fixed NTFS volume of this drive letter.
+pub(crate) fn free_space(drive: u8) -> io::Result<u64> {
+    let root = [u16::from(drive), b':' as u16, b'\\' as u16, 0];
+    let mut available = 0u64;
+    // SAFETY: root is NUL-terminated; outputs are one aligned u64 each.
+    if unsafe {
+        GetDiskFreeSpaceExW(
+            root.as_ptr(),
+            (&mut available as *mut u64).cast(),
+            null_mut(),
+            null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(available)
+}
+
+/// Identity of the actual OS handle SQLite's win32 VFS uses for this connection.
+pub(crate) fn verify_sqlite_vfs_handle(
+    file: &File,
+    connection: &rusqlite::Connection,
+) -> Result<(), crate::error::AppError> {
+    let expected = identity(file).map_err(unsafe_entry_conv)?;
+    let mut handle: HANDLE = null_mut();
+    // SAFETY: connection owns a live SQLite handle, main is static, the win32
+    // VFS writes one borrowed HANDLE and closes nothing. Never owned here.
+    let result = unsafe {
+        rusqlite::ffi::sqlite3_file_control(
+            connection.handle(),
+            c"main".as_ptr(),
+            rusqlite::ffi::SQLITE_FCNTL_WIN32_GET_HANDLE,
+            (&mut handle as *mut HANDLE).cast(),
+        )
+    };
+    if result != rusqlite::ffi::SQLITE_OK || handle.is_null() {
+        return Err(unsafe_entry().into());
+    }
+    let actual = identity_raw(handle).map_err(|_| unsafe_entry())?;
+    if actual != expected {
+        return Err(unsafe_entry().into());
+    }
+    Ok(())
+}
+fn unsafe_entry_conv(_: io::Error) -> crate::error::AppError {
+    unsafe_entry().into()
 }
 #[cfg(test)]
 mod security_tests {

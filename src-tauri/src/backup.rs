@@ -5,9 +5,9 @@ use crate::{
     models::BackupExportResult,
 };
 use std::path::Path;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 use std::time::{Duration, Instant};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 use {
     rusqlite::{
         backup::{Backup, StepResult},
@@ -17,10 +17,13 @@ use {
     std::{collections::BTreeSet, io::Write},
 };
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 type PhaseHook = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
-#[cfg(target_os = "macos")]
+#[cfg(not(any(target_os = "macos", windows)))]
+#[derive(Clone, Default)]
+pub(crate) struct BackupOptions {}
+#[cfg(any(target_os = "macos", windows))]
 #[derive(Clone)]
 pub(crate) struct BackupOptions {
     pub database_limit: u64,
@@ -45,11 +48,7 @@ pub(crate) struct BackupOptions {
     #[cfg(test)]
     pub backup_more_steps: u64,
 }
-#[cfg(not(target_os = "macos"))]
-#[derive(Clone, Default)]
-pub(crate) struct BackupOptions {}
-
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 impl Default for BackupOptions {
     fn default() -> Self {
         Self {
@@ -77,7 +76,7 @@ impl Default for BackupOptions {
         }
     }
 }
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fault {
     NoSpace,
@@ -91,7 +90,7 @@ pub(crate) enum Fault {
     CleanupIdentity,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 impl BackupOptions {
     pub(crate) fn check(&self) -> Result<(), AppError> {
         if self.started.elapsed() >= self.timeout {
@@ -147,7 +146,7 @@ impl BackupOptions {
 fn failure(error: BackupError) -> AppError {
     AppError::Backup(error)
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub(crate) fn output_error(error: std::io::Error) -> AppError {
     #[cfg(unix)]
     if error.raw_os_error() == Some(libc::ENOSPC) {
@@ -155,7 +154,7 @@ pub(crate) fn output_error(error: std::io::Error) -> AppError {
     }
     failure(BackupError::Failed)
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn sql_error(error: rusqlite::Error) -> AppError {
     if matches!(
         error.sqlite_error_code(),
@@ -172,7 +171,7 @@ pub(crate) fn export_with_picker(
     picker: impl FnOnce() -> Result<Option<std::path::PathBuf>, AppError>,
 ) -> Result<Option<BackupExportResult>, AppError> {
     let options = BackupOptions::default();
-    if !cfg!(target_os = "macos") {
+    if cfg!(not(any(target_os = "macos", windows))) {
         return Err(failure(BackupError::Unsupported));
     }
     let _busy = db.lock_export()?;
@@ -194,16 +193,16 @@ pub(crate) fn export_with_options(
     selected: Option<&Path>,
     options: BackupOptions,
 ) -> Result<Option<BackupExportResult>, AppError> {
-    #[cfg(all(test, target_os = "macos"))]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     if options.unsupported {
         return Err(failure(BackupError::Unsupported));
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (db, selected, options);
-        Err(failure(BackupError::Unsupported))
+        return Err(failure(BackupError::Unsupported));
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         let Some(selected) = selected else {
             return Ok(None);
@@ -342,7 +341,7 @@ pub(crate) fn export_with_options(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn database_size(c: &Connection, options: &BackupOptions) -> Result<(u64, u64, u64), AppError> {
     options.check()?;
     let page_size: u64 = c
@@ -362,7 +361,7 @@ fn database_size(c: &Connection, options: &BackupOptions) -> Result<(u64, u64, u
     }
     Ok((size, page_size, page_count))
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppError> {
     let start = Instant::now();
     let check = || {
@@ -477,7 +476,7 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
     Ok(target)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
@@ -492,14 +491,14 @@ struct Manifest {
     database: DatabaseEntry,
     media: Vec<MediaEntry>,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 #[derive(Serialize)]
 struct DatabaseEntry {
     path: &'static str,
     size: u64,
     sha256: String,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 #[derive(Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct MediaEntry {
@@ -509,14 +508,14 @@ struct MediaEntry {
     size: u64,
     sha256: String,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 struct BoundedManifest<'a> {
     bytes: Vec<u8>,
     limit: u64,
     options: &'a BackupOptions,
     exceeded: bool,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 impl Write for BoundedManifest<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.options
@@ -536,15 +535,15 @@ impl Write for BoundedManifest<'_> {
         Ok(())
     }
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn uuid(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok_and(|u| u.get_version_num() == 4 && u.to_string() == value)
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn managed(value: &str, extension: &str) -> bool {
     value.strip_suffix(extension).is_some_and(uuid)
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn digest(value: &str) -> bool {
     value.len() == 64
         && value
@@ -552,7 +551,7 @@ fn digest(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn validate_snapshot(
     c: &Connection,
     options: &BackupOptions,
@@ -701,7 +700,7 @@ fn validate_snapshot(
     Ok((character_count, asset_count, media))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn logical_digest(c: &Connection, options: &BackupOptions) -> Result<Vec<u8>, AppError> {
     use rusqlite::types::ValueRef;
     use sha2::{Digest, Sha256};
@@ -757,6 +756,6 @@ fn logical_digest(c: &Connection, options: &BackupOptions) -> Result<Vec<u8>, Ap
     Ok(digest.finalize().to_vec())
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 #[path = "backup_tests.rs"]
 mod tests;

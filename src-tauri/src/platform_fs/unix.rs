@@ -43,6 +43,29 @@ fn private(m: &Metadata) -> bool {
     // SAFETY: geteuid has no pointer arguments or preconditions.
     m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o022 == 0
 }
+pub(crate) fn is_private(file: &File) -> io::Result<bool> {
+    Ok(private(&file.metadata()?))
+}
+pub(crate) fn verify_vfs_connection(
+    _file: &File,
+    connection: &rusqlite::Connection,
+) -> Result<(), crate::error::AppError> {
+    let mut moved: libc::c_int = 0;
+    // SAFETY: connection owns a live SQLite handle, main is static, HAS_MOVED
+    // writes one c_int and checks SQLite's own Unix VFS fd against its named inode.
+    let result = unsafe {
+        rusqlite::ffi::sqlite3_file_control(
+            connection.handle(),
+            c"main".as_ptr(),
+            rusqlite::ffi::SQLITE_FCNTL_HAS_MOVED,
+            (&mut moved as *mut libc::c_int).cast(),
+        )
+    };
+    if result != rusqlite::ffi::SQLITE_OK || moved != 0 {
+        return Err(unsafe_entry().into());
+    }
+    Ok(())
+}
 pub(crate) fn verify_private(file: &File) -> io::Result<()> {
     if !private(&file.metadata()?) {
         return Err(unsafe_entry());
