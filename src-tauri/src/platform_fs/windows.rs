@@ -1073,6 +1073,16 @@ pub(crate) fn open_child_directory(parent: &Directory, name: &str) -> io::Result
     Ok(Directory { file, ancestors })
 }
 
+/// Open one existing child directory with FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY,
+/// the access FileRenameInformation requires of the destination parent handle.
+pub(crate) fn open_writable_directory(parent: &Directory, name: &str) -> io::Result<Directory> {
+    let file = open_at(parent.file(), name, WRITE_DIR, FILE_OPEN, true, false)?;
+    verify_acl(&file, true)?;
+    let mut ancestors = parent.ancestors.clone();
+    ancestors.push(Arc::new(parent.file.try_clone()?));
+    Ok(Directory { file, ancestors })
+}
+
 /// Create one new private child directory whose held handle can rename or delete it.
 /// DELETE rides on the creating handle: reopening by name would collide with the
 /// still-open creator handle's share mode, and the identity must be the one verified.

@@ -514,7 +514,13 @@ mod windows {
             }
             let mut current = root;
             for name in &names {
-                current = platform_fs::open_child_directory(&current, name).map_err(|_| error())?;
+                let final_component = std::ptr::eq(name, names.last().expect("non-empty"));
+                current = if final_component {
+                    platform_fs::open_writable_directory(&current, name)
+                } else {
+                    platform_fs::open_child_directory(&current, name)
+                }
+                .map_err(|_| error())?;
                 if excluded.contains(&platform_fs::identity(current.file()).map_err(|_| error())?) {
                     return Err(error());
                 }
