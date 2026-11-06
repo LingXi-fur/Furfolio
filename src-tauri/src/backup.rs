@@ -219,7 +219,7 @@ pub(crate) fn export_with_options(
             // backup RED loop; reverts to Integrity once the cause is proven.
             #[cfg(all(test, windows))]
             other => {
-                let detail = format!("{other:?}");
+                let detail = format!("lock:{other:?}");
                 failure(BackupError::CleanupPending(
                     detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
                 ))
@@ -394,7 +394,7 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
         // backup RED loop; reverts to Integrity once the cause is proven.
         #[cfg(all(test, windows))]
         other => {
-            let detail = format!("{other:?}");
+            let detail = format!("source:{other:?}");
             failure(BackupError::CleanupPending(
                 detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
             ))
@@ -498,7 +498,7 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
         .map_err(|e| {
             #[cfg(all(test, windows))]
             {
-                let detail = format!("{e:?}");
+                let detail = format!("verify:{e:?}");
                 failure(BackupError::CleanupPending(
                     detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
                 ))
