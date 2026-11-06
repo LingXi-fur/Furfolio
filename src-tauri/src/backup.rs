@@ -220,9 +220,9 @@ pub(crate) fn export_with_options(
             #[cfg(all(test, windows))]
             other => {
                 let detail = format!("{other:?}");
-                return Err(failure(BackupError::CleanupPending(
+                failure(BackupError::CleanupPending(
                     detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
-                )));
+                ))
             }
             #[cfg(not(all(test, windows)))]
             _ => failure(BackupError::Integrity),
@@ -395,9 +395,9 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
         #[cfg(all(test, windows))]
         other => {
             let detail = format!("{other:?}");
-            return Err(failure(BackupError::CleanupPending(
+            failure(BackupError::CleanupPending(
                 detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
-            )));
+            ))
         }
         #[cfg(not(all(test, windows)))]
         _ => failure(BackupError::Integrity),
@@ -499,9 +499,9 @@ fn snapshot(db: &Database, options: &BackupOptions) -> Result<Connection, AppErr
             #[cfg(all(test, windows))]
             {
                 let detail = format!("{e:?}");
-                return Err(failure(BackupError::CleanupPending(
+                failure(BackupError::CleanupPending(
                     detail.chars().filter(|c| c.is_ascii()).take(120).collect(),
-                )));
+                ))
             }
             #[cfg(not(all(test, windows)))]
             {
