@@ -396,7 +396,30 @@ fn descriptor() -> io::Result<PrivateSecurity> {
 fn trusted(sid: &str, user: &str) -> bool {
     sid == user || sid == "S-1-5-18" || sid == "S-1-5-32-544"
 }
+/// ACL strictness levels shared by the walker and the source-database check.
+enum Level {
+    /// Application-private object: owner is the user and the ACE set carries no
+    /// untrusted write-surface grants at all.
+    Private,
+    /// User-chosen ancestor chain: untrusted subjects may exist but must not
+    /// delete or replace the chain; TrustedInstaller is tolerated as owner.
+    Ancestor,
+    /// A source database file we did not create (SQLite's own default DACL):
+    /// owner must be the user and untrusted subjects must hold no write surface.
+    /// This mirrors the Unix uid==euid && group/other-not-writable rule.
+    OwnedSource,
+}
 fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
+    verify_acl_level(
+        file,
+        if ancestor {
+            Level::Ancestor
+        } else {
+            Level::Private
+        },
+    )
+}
+fn verify_acl_level(file: &File, level: Level) -> io::Result<()> {
     let mut owner = null_mut();
     let mut acl = null_mut::<ACL>();
     let mut sd = null_mut();
@@ -424,8 +447,17 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
     // TrustedInstaller owns normal Windows volume roots. It is trusted only for ancestors,
     // never as the owner of an application-private root or a newly created object.
     let installer = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
-    if (!ancestor && owner != user) || (ancestor && !trusted(&owner, &user) && owner != installer) {
-        return Err(unsafe_entry());
+    match level {
+        Level::Private | Level::OwnedSource => {
+            if owner != user {
+                return Err(unsafe_entry());
+            }
+        }
+        Level::Ancestor => {
+            if !trusted(&owner, &user) && owner != installer {
+                return Err(unsafe_entry());
+            }
+        }
     }
     let mut control = 0u16;
     let mut revision = 0;
@@ -463,10 +495,17 @@ fn verify_acl(file: &File, ancestor: bool) -> io::Result<()> {
             // Its generic write/all and delete-child grants are accepted here; explicit
             // DELETE/WRITE_DAC/WRITE_OWNER grants still fail this ancestor check.
             // Final private objects never gain this additional trusted principal.
-            let exempt = ancestor && subject == installer;
-            // Other untrusted ancestor subjects may create unrelated children but
-            // must not delete this chain, change owner/DACL, or replace children.
-            let dangerous = if ancestor { 0x500d_0040 } else { 0x500d_0156 };
+            let exempt = matches!(level, Level::Ancestor) && subject == installer;
+            // Untrusted subjects must never hold a write surface over this object:
+            // write data/attributes/EA, delete, or change owner/DACL. The ancestor
+            // level additionally tolerates nothing stronger, keeping the chain
+            // un-replaceable; the owned-source level matches the Unix "group and
+            // other must not be writable" rule for a file we did not create.
+            let dangerous = match level {
+                Level::Ancestor => 0x500d_0040,
+                Level::Private => 0x500d_0156,
+                Level::OwnedSource => 0x000d_0116,
+            };
             if mask & dangerous != 0 && !exempt {
                 return Err(unsafe_entry());
             }
@@ -485,10 +524,12 @@ pub(crate) fn verify_private(file: &File) -> io::Result<()> {
 pub(crate) fn verify_ancestor(file: &File) -> io::Result<()> {
     verify_acl(file, true)
 }
-/// A final object is private when its owner is the current user with a protected
-/// three-ACE DACL; the ACL check itself carries the verdict.
+/// A source-database file is private enough when the current user owns it and
+/// no untrusted subject holds any write surface over it. SQLite creates this
+/// file with the token default DACL, not our private descriptor, so the strict
+/// three-ACE private standard does not apply to it.
 pub(crate) fn is_private(file: &File) -> io::Result<bool> {
-    Ok(verify_acl(file, false).is_ok())
+    Ok(verify_acl_level(file, Level::OwnedSource).is_ok())
 }
 /// Verify SQLite's win32 VFS uses the exact OS handle identity captured earlier.
 pub(crate) fn verify_vfs_connection(
