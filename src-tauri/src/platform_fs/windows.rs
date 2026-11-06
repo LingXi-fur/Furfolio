@@ -111,6 +111,7 @@ extern "system" {
         length: u32,
         class: u32,
     ) -> i32;
+    #[cfg(all(test, windows))]
     fn NtQueryInformationFile(
         handle: HANDLE,
         status: *mut IoStatus,
