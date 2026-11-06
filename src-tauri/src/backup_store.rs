@@ -816,7 +816,7 @@ mod windows {
             } else if !self.files.iter().any(|entry| entry.media) {
                 // No media files were staged, so no media subdirectory exists.
             } else {
-                let media = platform_fs::open_child_directory(&self.directory, "media")
+                let media = platform_fs::open_deletable_directory(&self.directory, "media")
                     .map_err(|_| pending(&self.partial))?;
                 platform_fs::mark_directory_deleted(&media).map_err(output_error)?;
             }
