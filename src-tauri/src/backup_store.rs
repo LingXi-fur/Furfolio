@@ -559,6 +559,7 @@ mod windows {
                 final_name,
                 files: Vec::new(),
                 published: false,
+                media_created: false,
             })
         }
     }
@@ -574,12 +575,16 @@ mod windows {
         pub final_name: String,
         files: Vec<Created>,
         published: bool,
+        // Whether the media subdirectory was created, surviving the publish-time
+        // release of its handle: cleanup must still mark it deleted.
+        media_created: bool,
     }
     impl Staging {
         pub fn create_media(&mut self) -> Result<(), AppError> {
             let directory = platform_fs::create_private_directory(&self.directory, "media")
                 .map_err(output_error)?;
             self.media = Some(directory);
+            self.media_created = true;
             Ok(())
         }
         fn directory_for(&self, media: bool) -> Result<&platform_fs::Directory, AppError> {
@@ -813,9 +818,7 @@ mod windows {
             // so reopen it by its ledgered name only for the explicit mark.
             if let Some(media) = self.media.as_ref() {
                 platform_fs::mark_directory_deleted(media).map_err(output_error)?;
-            } else if !self.files.iter().any(|entry| entry.media) {
-                // No media files were staged, so no media subdirectory exists.
-            } else {
+            } else if self.media_created {
                 let media = platform_fs::open_deletable_directory(&self.directory, "media")
                     .map_err(|_| pending(&self.partial))?;
                 platform_fs::mark_directory_deleted(&media).map_err(output_error)?;
