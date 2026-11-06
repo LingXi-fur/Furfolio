@@ -158,7 +158,19 @@ impl Database {
         media_supported: bool,
     ) -> Result<Self, AppError> {
         if media_supported {
-            crate::media_store::private_directory(app_data_dir, true)?;
+            let directory = crate::media_store::private_directory(app_data_dir, true)?;
+            #[cfg(not(windows))]
+            let _ = &directory;
+            // On Windows, SQLite would create the database file with the process
+            // token default DACL, which on stock systems grants unrelated
+            // authenticated users a write surface. Create it ourselves with the
+            // application-private descriptor first; SQLite then opens the existing
+            // file and keeps that descriptor. Unix file modes already match the
+            // private rule, so the pre-creation is Windows-only.
+            #[cfg(windows)]
+            if !directory.exists("furfolio.sqlite3")? {
+                drop(directory.open_file("furfolio.sqlite3", true)?);
+            }
         } else {
             // Preserve v1's non-media library support. This does not authorize any media IO.
             fs::create_dir_all(app_data_dir)?;
