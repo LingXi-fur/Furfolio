@@ -745,6 +745,11 @@ mod windows {
             // captured identity and byte before the directory ever becomes final.
             self.sync_and_verify(manifest, options)?;
             options.before_rename()?;
+            // Windows refuses to rename a directory while any file inside it (or a
+            // subdirectory) still has an open handle. The verified media handle's
+            // work is done; release it before the rename. Failure paths after this
+            // point keep the stage name in the ledger for manual cleanup.
+            self.media = None;
             // The held stage handle carries DELETE, which FileRenameInformation requires;
             // its identity was verified against the parent at creation and re-verified above.
             // NT rename with ReplaceIfExists=false rejects any existing target, which is
@@ -803,9 +808,17 @@ mod windows {
             // Mark the now-empty media directory for deletion and release its handle,
             // then mark the stage: Windows deletion is POSIX-style delayed and only
             // resolves once every handle has closed, and each directory must be
-            // empty-and-unheld to disappear at last close.
+            // empty-and-unheld to disappear at last close. After a failed publish
+            // the media handle was already released ahead of the rename attempt,
+            // so reopen it by its ledgered name only for the explicit mark.
             if let Some(media) = self.media.as_ref() {
                 platform_fs::mark_directory_deleted(media).map_err(output_error)?;
+            } else if !self.files.iter().any(|entry| entry.media) {
+                // No media files were staged, so no media subdirectory exists.
+            } else {
+                let media = platform_fs::open_child_directory(&self.directory, "media")
+                    .map_err(|_| pending(&self.partial))?;
+                platform_fs::mark_directory_deleted(&media).map_err(output_error)?;
             }
             self.media = None;
             platform_fs::mark_directory_deleted(&self.directory).map_err(output_error)?;
