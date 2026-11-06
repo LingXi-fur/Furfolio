@@ -53,7 +53,7 @@ describe("BackupSettings", () => {
       expect(showModal).toHaveBeenCalledOnce();
       expect(dialog).toHaveAccessibleDescription(/unencrypted.*private notes.*original images.*SQLite pages.*historical content/i);
       expect(within(dialog).getByText(/restore is not implemented/i)).toBeInTheDocument();
-      expect(within(dialog).getByText(/macOS only.*64 MiB.*10,000.*1,000.*2 GiB.*2 MiB/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/macOS and Windows.*64 MiB.*10,000.*1,000.*2 GiB.*2 MiB/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Close settings" })).toHaveFocus();
       const button = screen.getByRole("button", { name: "Choose folder and export" });
       expect(button).toBeDisabled();

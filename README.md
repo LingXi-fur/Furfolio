@@ -17,7 +17,7 @@ Furfolio is a desktop character library built for people who want to keep their 
 
 Its interface treats each character as a record—not as content for a dashboard template. Layered paper, index marks, color swatches, and archive numbering form the visual language while the user's characters remain the only protagonists.
 
-> **Current stage:** Furfolio `0.1.0` is under active development. Character CRUD, managed reference images, and macOS directory-backup export are implemented. Backend export tests use real temporary SQLite libraries and synthetic media; frontend tests use mock IPC. Native desktop end-to-end acceptance is still incomplete. Restore is not implemented.
+> **Current stage:** Furfolio `0.1.0` is under active development. Character CRUD, managed reference images, and directory-backup export (macOS and Windows backend) are implemented. Backend tests run on both platforms in CI with real temporary SQLite libraries and synthetic media; frontend tests use mock IPC. Native desktop end-to-end acceptance is still incomplete, and the Windows desktop flow is unverified. Restore is not implemented.
 
 ## What works today
 
@@ -32,7 +32,7 @@ Its interface treats each character as a record—not as content for a dashboard
 - Use responsive desktop and narrow-window layouts with accessible controls
 - Manage reference images in the detail-view frontend through typed IPC: native single-image selection, managed PNG previews, inline artist/source/notes editing, and confirmed removal
 - See persistent, retryable image-cleanup warnings without keeping already-deleted records visible
-- Export an unencrypted whole-library directory on macOS through Settings, with a consistent SQLite snapshot, referenced media, and a versioned SHA-256 manifest
+- Export an unencrypted whole-library directory on macOS or Windows through Settings, with a consistent SQLite snapshot, referenced media, and a versioned SHA-256 manifest
 
 ### Managed reference gallery
 
@@ -44,7 +44,7 @@ An append-only schema migration adds a file-ownership ledger for interrupted imp
 
 **Current limits:**
 
-- Managed media I/O is implemented and tested on macOS. The current feature branch is not usable on Windows: its platform implementation is in progress, Windows CI has exposed compilation/backend failures, and independent review found blocking security-descriptor defects. No working Windows archive, media, or backup flow is claimed for this revision. See [Windows implementation gate](docs/native-acceptance.md#windows-implementation-gate--2026-11-02). Linux is not validated.
+- Managed media I/O and whole-library backup export are implemented and CI-tested on macOS and on Windows 10/11 x64 with local NTFS volumes (run 42216133288: both jobs green, 68 backend tests each). Windows support is backend-verified only: the native desktop flow (folder picker, preview rendering in WebView2, restart, and end-to-end export) has not been exercised on a real Windows desktop. Linux is not validated and fails closed.
 - JPEG compatibility is retained deliberately: the decoder may recover some damaged or truncated JPEGs by synthesizing pixels. Import success is **not** proof of JPEG integrity. Original bytes remain unchanged. The byte/dimension/pixel limits still apply.
 - The 128 MiB decoder allocation budget is not a hard process-RSS or all-scratch-memory limit, particularly for WebP.
 - Native picker → import → restart → edit → remove acceptance is incomplete. On 2026-11-01, a fresh, uninstrumented desktop build exposed a usable native WebArea, created a synthetic character, and opened/canceled the system image picker in an isolated library. The external driver's foreground check was corrected, but targeted keyboard navigation still did not open the path panel. Automatic input experiments stopped; no native image import completed. The remaining isolated test instance was stopped on 2026-11-02. See [native acceptance](docs/native-acceptance.md). Browser exercises use synthetic IPC and cannot prove native file handling.
@@ -52,7 +52,7 @@ An append-only schema migration adds a file-ownership ledger for interrupted imp
 
 ### Directory backup export
 
-Settings offers a macOS-only, unencrypted library export. After acknowledging the privacy warning, choose a parent directory through the native folder picker. Furfolio writes a new directory containing a consistent `library.sqlite3`, its referenced original images/previews, and a versioned `manifest.json` with relative paths, sizes, and SHA-256 digests. Existing output is never overwritten; canceling is not an error.
+Settings offers an unencrypted library export on macOS and Windows (local NTFS). After acknowledging the privacy warning, choose a parent directory through the native folder picker. Furfolio writes a new directory containing a consistent `library.sqlite3`, its referenced original images/previews, and a versioned `manifest.json` with relative paths, sizes, and SHA-256 digests. Existing output is never overwritten; canceling is not an error.
 
 The copy includes private notes and original images; SQLite pages may retain historical content. Keep the whole directory private. Export does not implement restore, encryption, or automatic backup. A published-but-durability-uncertain result is distinct from failure and must be inspected before retrying. Backend tests cover real temporary libraries and synthetic media, but the native folder-picker-to-export desktop flow remains unvalidated. See [format, limits, and failure semantics](docs/backup-export.md).
 
@@ -168,7 +168,7 @@ design/                Original character-diagnostic SVG studies (not app assets
 - [x] Reference-gallery frontend and typed native-import IPC client
 - [x] Artist credit, source text, image notes, and cleanup-retry UI
 - [ ] Native media integration and isolated desktop end-to-end acceptance
-- [x] macOS directory-backup export and manifest validation
+- [x] macOS and Windows (backend) directory-backup export and manifest validation
 - [ ] Native backup desktop end-to-end acceptance and restore
 - [ ] Release packaging and migration hardening
 
