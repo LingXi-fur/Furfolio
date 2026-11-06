@@ -404,3 +404,56 @@ fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
     assert_eq!(platform_fs::identity(&named).unwrap(), before);
     assert_eq!(platform_fs::identity(&file).unwrap(), before);
 }
+
+#[test]
+fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
+    // A user-visible path deeper than MAX_PATH-260 must still initialize, import,
+    // and export: the platform walk is component-wise on verbatim \\?\ handles.
+    let mut root = std::env::temp_dir();
+    root.push(format!("furfolio-deep-{}", Uuid::new_v4()));
+    let long_segment = "深深的角色资料库目录-".repeat(6);
+    let mut library = root.clone();
+    for _ in 0..8 {
+        library.push(&long_segment);
+    }
+    let mut destination = root.clone();
+    destination.push("备份 目标");
+    fs::create_dir_all(&destination).unwrap();
+    let db = Database::initialize(&library).unwrap();
+    let character = characters::create_character(
+        &db,
+        CharacterInput {
+            name: "合成 Deep".into(),
+            species: None,
+            pronouns: None,
+            description: None,
+            notes: Some("deep-path note".into()),
+            tags: vec![],
+            colors: vec![],
+        },
+    )
+    .unwrap()
+    .id;
+    // Cancel semantics on a deep path: no picker selection is not an error.
+    media::import_selected(&db, &character, None)
+        .unwrap()
+        .unwrap_none();
+    // A real import under the deep path also works: the source lives on the normal
+    // visible path while the library itself sits deep.
+    let source = root.join("合成 原图.png");
+    let mut cursor = Cursor::new(Vec::new());
+    DynamicImage::new_rgb8(16, 12)
+        .write_to(&mut cursor, ImageFormat::Png)
+        .unwrap();
+    fs::write(&source, cursor.get_ref()).unwrap();
+    media::import_selected(&db, &character, Some(&source))
+        .expect("deep-path library must import a synthetic image")
+        .unwrap();
+    let result = backup::export_selected(&db, Some(&destination))
+        .expect("deep-path export must publish")
+        .unwrap();
+    let output = destination.join(&result.directory_name);
+    assert!(output.join("library.sqlite3").is_file());
+    assert!(output.join("manifest.json").is_file());
+    fs::remove_dir_all(&root).unwrap();
+}
