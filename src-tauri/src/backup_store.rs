@@ -486,6 +486,17 @@ mod windows {
         size: u64,
         hash: String,
     }
+    #[cfg(all(test, windows))]
+    impl std::fmt::Debug for Created {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Created")
+                .field("name", &self.name)
+                .field("media", &self.media)
+                .field("identity", &self.identity)
+                .field("size", &self.size)
+                .finish()
+        }
+    }
 
     pub(crate) struct Parent {
         directory: platform_fs::Directory,
@@ -797,17 +808,30 @@ mod windows {
             for entry in self.files.iter().rev() {
                 options.check()?;
                 let directory = self.directory_for(entry.media)?;
-                let file = directory
-                    .open_mutable(&entry.name)
-                    .map_err(|_| pending(&self.partial))?;
+                let file = directory.open_mutable(&entry.name).map_err(|e| {
+                    #[cfg(all(test, windows))]
+                    eprintln!("cleanup open_mutable {}: {e:?}", entry.name);
+                    #[cfg(not(all(test, windows)))]
+                    let _ = &e;
+                    pending(&self.partial)
+                })?;
                 let state = platform_fs::file_state(&file).map_err(|_| pending(&self.partial))?;
                 if state.identity != entry.identity || state.size != entry.size || state.links != 1
                 {
+                    #[cfg(all(test, windows))]
+                    eprintln!(
+                        "cleanup state mismatch {}: recorded={:?} actual={:?}",
+                        entry.name, entry, state
+                    );
                     return Err(pending(&self.partial));
                 }
-                directory
-                    .remove_file(&entry.name, &file)
-                    .map_err(output_error)?;
+                directory.remove_file(&entry.name, &file).map_err(|e| {
+                    #[cfg(all(test, windows))]
+                    eprintln!("cleanup remove_file {}: {e:?}", entry.name);
+                    #[cfg(not(all(test, windows)))]
+                    let _ = &e;
+                    output_error(e)
+                })?;
                 drop(file);
             }
             // Mark the now-empty media directory for deletion and release its handle,
