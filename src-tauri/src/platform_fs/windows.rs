@@ -111,6 +111,13 @@ extern "system" {
         length: u32,
         class: u32,
     ) -> i32;
+    fn NtQueryInformationFile(
+        handle: HANDLE,
+        status: *mut IoStatus,
+        information: *mut c_void,
+        length: u32,
+        class: u32,
+    ) -> i32;
     fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 fn raw(file: &File) -> HANDLE {
@@ -945,11 +952,25 @@ pub(crate) fn rename_exclusive(file: &File, parent: &File, name: &str) -> io::Re
     };
     if result < 0 {
         #[cfg(all(test, windows))]
-        eprintln!(
-            "rename_exclusive NTSTATUS: {result:#x} (file={:?}, parent={:?})",
-            raw(file) as usize,
-            raw(parent) as usize
-        );
+        {
+            let granted = |h: HANDLE| -> u32 {
+                let mut access = 0u32;
+                let mut status = IoStatus {
+                    status: 0,
+                    information: 0,
+                };
+                // SAFETY: FileAccessInformation writes one u32 into aligned storage.
+                let _ = unsafe {
+                    NtQueryInformationFile(h, &mut status, (&mut access as *mut u32).cast(), 4, 8)
+                };
+                access
+            };
+            eprintln!(
+                "rename_exclusive NTSTATUS: {result:#x} file_granted={:#x} parent_granted={:#x}",
+                granted(raw(file)),
+                granted(raw(parent)),
+            );
+        }
         Err(status_error(result))
     } else {
         Ok(())
