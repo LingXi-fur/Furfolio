@@ -816,8 +816,10 @@ mod windows {
                     pending(&self.partial)
                 })?;
                 let state = platform_fs::file_state(&file).map_err(|_| pending(&self.partial))?;
-                if state.identity != entry.identity || state.size != entry.size || state.links != 1
-                {
+                // Like the Unix cleanup: identity, single link, and file type only.
+                // Size is deliberately not compared — an interrupted write leaves a
+                // partial file whose identity is still the ledgered one.
+                if state.identity != entry.identity || state.links != 1 || state.directory {
                     #[cfg(all(test, windows))]
                     eprintln!(
                         "cleanup state mismatch {}: recorded={:?} actual={:?}",
