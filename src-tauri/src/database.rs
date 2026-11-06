@@ -158,19 +158,7 @@ impl Database {
         media_supported: bool,
     ) -> Result<Self, AppError> {
         if media_supported {
-            let directory = crate::media_store::private_directory(app_data_dir, true)?;
-            #[cfg(not(windows))]
-            let _ = &directory;
-            // On Windows, SQLite would create the database file with the process
-            // token default DACL, which on stock systems grants unrelated
-            // authenticated users a write surface. Create it ourselves with the
-            // application-private descriptor first; SQLite then opens the existing
-            // file and keeps that descriptor. Unix file modes already match the
-            // private rule, so the pre-creation is Windows-only.
-            #[cfg(windows)]
-            if !directory.exists("furfolio.sqlite3")? {
-                drop(directory.open_file("furfolio.sqlite3", true)?);
-            }
+            crate::media_store::private_directory(app_data_dir, true)?;
         } else {
             // Preserve v1's non-media library support. This does not authorize any media IO.
             fs::create_dir_all(app_data_dir)?;
@@ -182,7 +170,23 @@ impl Database {
             media_supported,
         };
         let _initialization = if media_supported {
-            Some(lock_initialization(&database.path)?)
+            let lock = lock_initialization(&database.path)?;
+            // On Windows, SQLite would create the database file with the process
+            // token default DACL, which on stock systems grants unrelated
+            // authenticated users a write surface. Create it ourselves with the
+            // application-private descriptor first; SQLite then opens the existing
+            // file and keeps that descriptor. Unix file modes already match the
+            // private rule, so the pre-creation is Windows-only and serialized
+            // inside the cross-process initialization lock; FILE_CREATE keeps the
+            // step atomic regardless.
+            #[cfg(windows)]
+            {
+                let directory = crate::media_store::private_directory(app_data_dir, false)?;
+                if !directory.exists("furfolio.sqlite3")? {
+                    drop(directory.open_file("furfolio.sqlite3", true)?);
+                }
+            }
+            Some(lock)
         } else {
             None
         };
