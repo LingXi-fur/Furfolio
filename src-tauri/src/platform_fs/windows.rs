@@ -944,6 +944,12 @@ pub(crate) fn rename_exclusive(file: &File, parent: &File, name: &str) -> io::Re
         NtSetInformationFile(raw(file), &mut status, info.cast(), length as u32, 10)
     };
     if result < 0 {
+        #[cfg(all(test, windows))]
+        eprintln!(
+            "rename_exclusive NTSTATUS: {result:#x} (file={:?}, parent={:?})",
+            raw(file) as usize,
+            raw(parent) as usize
+        );
         Err(status_error(result))
     } else {
         Ok(())
