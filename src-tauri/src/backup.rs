@@ -160,7 +160,10 @@ pub(crate) fn output_error(error: std::io::Error) -> AppError {
     // TODO(runner-diagnostic): temporary error surfacing for the Windows
     // backup RED loop; removed once the cause is proven.
     #[cfg(all(test, windows))]
-    eprintln!("backup output_error: {error:?}");
+    eprintln!(
+        "backup output_error: {error:?}\n{}",
+        std::backtrace::Backtrace::force_capture()
+    );
     failure(BackupError::Failed)
 }
 #[cfg(any(target_os = "macos", windows))]
