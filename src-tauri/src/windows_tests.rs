@@ -393,6 +393,13 @@ fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
         fs::read(f.destination.join("collision.bin")).unwrap(),
         b"outside sentinel"
     );
+    // NTFS matches names case-insensitively; a case-only alias is the same file and
+    // must collide too, so a published backup name cannot be shadowed by its casing.
+    assert!(platform_fs::rename_exclusive(&file, &parent, "COLLISION.bin").is_err());
+    assert_eq!(
+        fs::read(f.destination.join("collision.bin")).unwrap(),
+        b"outside sentinel"
+    );
     assert_eq!(fs::read(&source).unwrap(), b"owned payload");
     platform_fs::rename_exclusive(&file, &parent, "published.bin").unwrap();
     assert!(!source.exists());
