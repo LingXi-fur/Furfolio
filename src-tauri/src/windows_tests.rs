@@ -409,9 +409,10 @@ fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
 fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     // A user-visible path deeper than MAX_PATH-260 must still initialize, import,
     // and export: the platform walk is component-wise on verbatim \\?\ handles.
-    // The runner's TEMP is a short 8.3 name (C:\Users\RUNNER~1\...); resolve it to
-    // its long form first so the verbatim \\?\ path carries real component names.
-    let mut root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    // The runner's TEMP is a short 8.3 name (C:\Users\RUNNER~1\...). Resolve it to
+    // its long form without the \\?\ prefix canonicalize adds, so SQLite receives a
+    // plain path and applies its own MAX_PATH handling.
+    let mut root = to_long_path(&std::env::temp_dir());
     root.push(format!("furfolio-deep-{}", Uuid::new_v4()));
     let long_segment = "深深的角色资料库目录-".repeat(6);
     let mut library = root.clone();
@@ -471,6 +472,21 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     // std::fs::remove_dir_all recurses with plain Win32 paths, so the deep child
     // names would stop at MAX_PATH; delete through the extended-length form.
     fs::remove_dir_all(verbatim_for_test(&root)).unwrap();
+}
+
+/// Resolve 8.3 short names and strip the `\\?\` prefix canonicalize adds, so the
+/// result is a plain long path (SQLite applies its own MAX_PATH handling).
+fn to_long_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let canonical = std::fs::canonicalize(path).unwrap();
+    let wide = canonical.as_os_str().encode_wide().collect::<Vec<_>>();
+    let prefix: &[u16] = &[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    let stripped = if wide.starts_with(prefix) {
+        &wide[4..]
+    } else {
+        &wide[..]
+    };
+    std::path::PathBuf::from(std::ffi::OsString::from_wide(stripped))
 }
 
 /// A `\\?\`-prefixed copy of an absolute drive path, so std::fs APIs that do
