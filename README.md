@@ -15,7 +15,7 @@ Local-first · Offline · No account · No cloud · No telemetry
 
 Furfolio is a desktop character library built for people who want to keep their OCs organized without handing their collection to a cloud service. Names, species, pronouns, tags, signature colors, descriptions, and private notes stay together in a focused local archive.
 
-Its interface treats each character as a record—not as content for a dashboard template. Layered paper, index marks, color swatches, and archive numbering form the visual language while the user's characters remain the only protagonists.
+Its interface treats each character as a record—not as content for a dashboard template. A warm, soft visual language — a cream canvas, rounded white cards, and cherry-blossom and sage accents — keeps the archive calm while the user's characters remain the only protagonists.
 
 > **Current stage:** Furfolio `0.1.0` is under active development. Character CRUD, managed reference images, and directory-backup export (macOS and Windows backend) are implemented. Backend tests run on both platforms in CI with real temporary SQLite libraries and synthetic media; frontend tests use mock IPC. Native desktop end-to-end acceptance is still incomplete, and the Windows desktop flow is unverified. Restore is not implemented.
 
@@ -44,7 +44,7 @@ An append-only schema migration adds a file-ownership ledger for interrupted imp
 
 **Current limits:**
 
-- Managed media I/O and whole-library backup export are implemented and CI-tested on macOS and on Windows 10/11 x64 with local NTFS volumes (run 42216133288: both jobs green, 68 backend tests each). Windows support is backend-verified only: the native desktop flow (folder picker, preview rendering in WebView2, restart, and end-to-end export) has not been exercised on a real Windows desktop. Linux is not validated and fails closed.
+- Managed media I/O and whole-library backup export are implemented and CI-tested on macOS and on Windows 10/11 x64 with local NTFS volumes (latest run: both jobs green, 68 backend tests each). The Windows capability layer walks component names handle-relative, so media and backup paths stay verbatim-safe; SQLite itself does not prepend `\\?\`, so a library root past the 260-character MAX_PATH cannot open its database. Windows support is backend-verified only: the native desktop flow (folder picker, preview rendering in WebView2, restart, and end-to-end export) has not been exercised on a real Windows desktop. Linux is not validated and fails closed.
 - JPEG compatibility is retained deliberately: the decoder may recover some damaged or truncated JPEGs by synthesizing pixels. Import success is **not** proof of JPEG integrity. Original bytes remain unchanged. The byte/dimension/pixel limits still apply.
 - The 128 MiB decoder allocation budget is not a hard process-RSS or all-scratch-memory limit, particularly for WebP.
 - Native picker → import → restart → edit → remove acceptance is incomplete. On 2026-11-01, a fresh, uninstrumented desktop build exposed a usable native WebArea, created a synthetic character, and opened/canceled the system image picker in an isolated library. The external driver's foreground check was corrected, but targeted keyboard navigation still did not open the path panel. Automatic input experiments stopped; no native image import completed. The remaining isolated test instance was stopped on 2026-11-02. See [native acceptance](docs/native-acceptance.md). Browser exercises use synthetic IPC and cannot prove native file handling.
