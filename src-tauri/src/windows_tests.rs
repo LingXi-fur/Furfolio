@@ -409,7 +409,9 @@ fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
 fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     // A user-visible path deeper than MAX_PATH-260 must still initialize, import,
     // and export: the platform walk is component-wise on verbatim \\?\ handles.
-    let mut root = std::env::temp_dir();
+    // The runner's TEMP is a short 8.3 name (C:\Users\RUNNER~1\...); resolve it to
+    // its long form first so the verbatim \\?\ path carries real component names.
+    let mut root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
     root.push(format!("furfolio-deep-{}", Uuid::new_v4()));
     let long_segment = "深深的角色资料库目录-".repeat(6);
     let mut library = root.clone();
@@ -419,7 +421,14 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     let mut destination = root.clone();
     destination.push("备份 目标");
     fs::create_dir_all(&destination).unwrap();
-    let db = Database::initialize(&library).unwrap();
+    let db = Database::initialize(&library).unwrap_or_else(|error| {
+        let verbatim = platform_fs::verbatim(&library.join("furfolio.sqlite3")).unwrap();
+        match fs::File::open(&verbatim) {
+            Ok(_) => eprintln!("DIAG verbatim db open: OK"),
+            Err(io) => eprintln!("DIAG verbatim db open: {io} raw={:?}", io.raw_os_error()),
+        }
+        panic!("deep-path initialize failed: {error:?}");
+    });
     let character = characters::create_character(
         &db,
         CharacterInput {
