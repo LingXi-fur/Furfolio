@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { CharacterSummary } from "../data/characters";
 import { FeatureStage } from "./FeatureStage";
 import { IndexEntry } from "./IndexEntry";
-import { ArrowRightIcon, CloseIcon, HomeIcon, PlusIcon, SearchIcon } from "./icons";
+import { AlertIcon, ArrowRightIcon, CloseIcon, HomeIcon, PlusIcon, SearchIcon } from "./icons";
 
 interface LibraryViewProps {
   characters: CharacterSummary[];
@@ -109,7 +109,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
   if (error) {
     return (
       <main ref={errorRef} className="state-screen view-enter" tabIndex={-1} aria-labelledby="library-error-title">
-        <span className="state-icon">!</span>
+        <span className="state-icon"><AlertIcon /></span>
         <h1 id="library-error-title">{t("errors.libraryTitle")}</h1>
         <p>{error}</p>
         <button className="primary-button" type="button" onClick={onRetry}>{t("actions.retry")}</button>
@@ -180,7 +180,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
       {notice && (
         <div className="library-notice" role="alert">
           <span>{notice}</span>
-          <button type="button" onClick={dismissNotice} aria-label={t("library.dismissNotice")}>×</button>
+          <button type="button" onClick={dismissNotice} aria-label={t("library.dismissNotice")}><CloseIcon /></button>
         </div>
       )}
 
