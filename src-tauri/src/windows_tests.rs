@@ -455,5 +455,7 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     let output = destination.join(&result.directory_name);
     assert!(output.join("library.sqlite3").is_file());
     assert!(output.join("manifest.json").is_file());
-    fs::remove_dir_all(&root).unwrap();
+    // std::fs::remove_dir_all recurses with plain Win32 paths, so the deep child
+    // names would stop at MAX_PATH; delete through the extended-length form.
+    fs::remove_dir_all(platform_fs::verbatim(&root).unwrap()).unwrap();
 }
