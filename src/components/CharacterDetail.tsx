@@ -5,6 +5,7 @@ import { CharacterCover } from "./CharacterCover";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ReferenceGallery } from "./ReferenceGallery";
 import { DEFAULT_PALETTE, coverPalette } from "./characterPalette";
+import { ArrowLeftIcon } from "./icons";
 
 interface CharacterDetailProps {
   character: Character;
@@ -40,7 +41,7 @@ export function CharacterDetail({ character, plateIndex, deleting, mediaBusy, er
   return (
     <main className="detail-view view-enter">
       <div className="detail-toolbar">
-        <button ref={backButtonRef} className="back-button" type="button" onClick={onBack}>← {t("actions.backToLibrary")}</button>
+        <button ref={backButtonRef} className="back-button" type="button" onClick={onBack}><ArrowLeftIcon /> {t("actions.backToLibrary")}</button>
         <div className="detail-actions">
           <button className="secondary-button" type="button" onClick={onEdit} disabled={mediaBusy || deleting}>{t("actions.edit")}</button>
           <button ref={deleteButtonRef} className="danger-link" type="button" disabled={mediaBusy || deleting} onClick={() => setConfirmingDelete(true)}>{t("actions.delete")}</button>
@@ -50,7 +51,7 @@ export function CharacterDetail({ character, plateIndex, deleting, mediaBusy, er
       <section className="detail-record" style={{ "--detail-primary": palette.primary } as CSSProperties}>
         <aside className="detail-cover-wrap">
           <CharacterCover name={character.name} species={character.species} colors={character.colors} index={plateIndex} />
-          <span className="collection-stamp" aria-hidden="true">EX LIBRIS<br />FURFOLIO · LOCAL</span>
+          <span className="collection-stamp" aria-hidden="true">FURFOLIO · LOCAL</span>
         </aside>
 
         <div className="detail-body">

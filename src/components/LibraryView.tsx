@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { CharacterSummary } from "../data/characters";
 import { FeatureStage } from "./FeatureStage";
 import { IndexEntry } from "./IndexEntry";
+import { ArrowRightIcon, CloseIcon, HomeIcon, PlusIcon, SearchIcon } from "./icons";
 
 interface LibraryViewProps {
   characters: CharacterSummary[];
@@ -120,7 +121,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
     return (
       <main className="empty-library view-enter">
         <section className="archive-board" aria-hidden="true">
-          <span className="board-register">FURFOLIO / 001</span>
+          <span className="board-register">FURFOLIO</span>
           <div className="board-sheet board-sheet-back" />
           <div className="board-sheet board-sheet-main">
             <span className="board-tab">OC</span>
@@ -130,7 +131,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
             <span className="board-line board-line-three" />
             <span className="board-swatch board-swatch-one" />
             <span className="board-swatch board-swatch-two" />
-            <span className="board-code">LOCAL / PRIVATE</span>
+            <span className="board-code">LOCAL · PRIVATE</span>
           </div>
           <span className="board-note">{t("empty.boardNote")}</span>
         </section>
@@ -140,12 +141,12 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
           <p className="intro">{t("empty.description")}</p>
           <div className="actions">
             <button ref={createRef} className="primary-button" type="button" onClick={onCreate}>
-              {t("empty.create")} <span aria-hidden="true">→</span>
+              {t("empty.create")} <ArrowRightIcon />
             </button>
             <button className="secondary-button" type="button" disabled title={t("comingSoon")}>{t("empty.restore")}</button>
           </div>
           <aside className="privacy-note">
-            <span className="privacy-icon" aria-hidden="true">⌂</span>
+            <span className="privacy-icon"><HomeIcon /></span>
             <span><strong>{t("privacy.title")}</strong><small>{t("privacy.description")}</small></span>
           </aside>
         </section>
@@ -163,16 +164,16 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
 
         <section className="library-tools" aria-label={t("library.tools")}>
           <label className="search-field">
-            <span aria-hidden="true">⌕</span>
+            <SearchIcon />
             <span className="sr-only">{t("library.searchLabel")}</span>
             <input ref={searchRef} value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t("library.searchPlaceholder")} />
-            {query ? <button type="button" onClick={clearSearch} aria-label={t("library.clearSearchInput")}>×</button> : <kbd aria-hidden="true">/</kbd>}
+            {query ? <button type="button" onClick={clearSearch} aria-label={t("library.clearSearchInput")}><CloseIcon /></button> : <kbd aria-hidden="true">/</kbd>}
           </label>
           <span className="library-tally">
             <strong aria-hidden="true">{String(filtered.length).padStart(2, "0")}</strong>
             <span>{t("library.resultCount", { count: filtered.length })}</span>
           </span>
-          <button ref={createRef} className="primary-button" type="button" onClick={onCreate}>{t("library.addCharacter")} <span aria-hidden="true">＋</span></button>
+          <button ref={createRef} className="primary-button" type="button" onClick={onCreate}>{t("library.addCharacter")} <PlusIcon /></button>
         </section>
       </header>
 
@@ -217,7 +218,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
         </>
       ) : (
         <section className="no-results">
-          <span>⌕</span><h2>{t("library.noResultsTitle")}</h2><p>{t("library.noResultsDescription")}</p>
+          <SearchIcon /><h2>{t("library.noResultsTitle")}</h2><p>{t("library.noResultsDescription")}</p>
           <button className="secondary-button" type="button" onClick={clearSearch}>{t("library.clearSearch")}</button>
         </section>
       )}

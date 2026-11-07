@@ -6,6 +6,7 @@ import { BackupSettings } from "./components/BackupSettings";
 import { CharacterDetail } from "./components/CharacterDetail";
 import { CharacterForm } from "./components/CharacterForm";
 import { LibraryView } from "./components/LibraryView";
+import { MoonIcon, SunIcon } from "./components/icons";
 import { isAppliedCleanup, mediaCleanupStatus, retryMediaCleanup } from "./data/assets";
 import {
   createCharacter,
@@ -496,7 +497,7 @@ function App() {
             </select>
           </label>
           <button className="theme-control" type="button" aria-label={theme === "dark" ? t("theme.light") : t("theme.dark")} onClick={changeTheme}>
-            <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><span>{theme === "dark" ? t("theme.lightShort") : t("theme.darkShort")}</span>
+            <span aria-hidden="true">{theme === "dark" ? <SunIcon /> : <MoonIcon />}</span><span>{theme === "dark" ? t("theme.lightShort") : t("theme.darkShort")}</span>
           </button>
           <p className="local-status"><span />{t("status")}</p>
         </div>

@@ -1,6 +1,6 @@
 import type { CharacterColor } from "../data/characters";
 
-export const DEFAULT_PALETTE = ["#8A5A3C", "#C9A24B"] as const;
+export const DEFAULT_PALETTE = ["#D98BA6", "#9BB8A8"] as const;
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const DARK_INK = "#26211B";

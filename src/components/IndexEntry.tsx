@@ -2,6 +2,7 @@ import { type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { CharacterSummary } from "../data/characters";
 import { DEFAULT_PALETTE, coverPalette } from "./characterPalette";
+import { ArrowUpRightIcon } from "./icons";
 
 interface IndexEntryProps {
   character: CharacterSummary;
@@ -57,7 +58,7 @@ export function IndexEntry({ character, index, order, opening, onOpen }: IndexEn
         <i style={{ background: palette.secondary }} />
       </span>
 
-      <span className="index-open" aria-hidden="true">{opening ? "…" : "↗"}</span>
+      <span className="index-open" aria-hidden="true">{opening ? "…" : <ArrowUpRightIcon />}</span>
     </button>
   );
 }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { CharacterSummary } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
 import { DEFAULT_PALETTE, coverPalette } from "./characterPalette";
+import { ArrowUpRightIcon } from "./icons";
 
 interface FeatureStageProps {
   character: CharacterSummary;
@@ -83,7 +84,7 @@ export function FeatureStage({ character, index, opening, onOpen }: FeatureStage
                 ? t("library.openingPlate", { name: character.name })
                 : t("library.openPlate", { name: character.name })}
             </span>
-            <b aria-hidden="true">{opening ? "…" : "↗"}</b>
+            <b aria-hidden="true">{opening ? "…" : <ArrowUpRightIcon />}</b>
           </span>
         </span>
       </span>

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { Character, CharacterInput } from "../data/characters";
 import { CharacterCover } from "./CharacterCover";
 import { DEFAULT_PALETTE } from "./characterPalette";
+import { ArrowLeftIcon, HomeIcon } from "./icons";
 
 interface CharacterFormProps {
   character?: Character;
@@ -103,7 +104,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
   return (
     <main className="workspace view-enter" aria-labelledby="form-title">
       <header className="workspace-heading">
-        <button className="back-button" type="button" onClick={onCancel}>← {t("actions.back")}</button>
+        <button className="back-button" type="button" onClick={onCancel}><ArrowLeftIcon /> {t("actions.back")}</button>
         <div>
           <p className="eyebrow">{character ? t("form.editEyebrow") : t("form.createEyebrow")}</p>
           <h1 id="form-title">{character ? t("form.editTitle") : t("form.createTitle")}</h1>
@@ -147,7 +148,7 @@ export function CharacterForm({ character, saving, error, onCancel, onSubmit }: 
               </button>
             ))}
           </nav>
-          <p className="local-reminder">⌂ {t("privacy.description")}</p>
+          <p className="local-reminder"><HomeIcon /> {t("privacy.description")}</p>
         </aside>
 
         <div className="character-form">

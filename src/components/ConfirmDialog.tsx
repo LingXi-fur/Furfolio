@@ -1,6 +1,7 @@
 import { useId, useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "./useModalDialog";
+import { AlertIcon } from "./icons";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -36,7 +37,7 @@ export function ConfirmDialog({ open, title, description, confirming, confirmLab
         if (!confirming) onCancel();
       }}
     >
-      <span className="dialog-warning" aria-hidden="true">!</span>
+      <span className="dialog-warning"><AlertIcon /></span>
       <div>
         <p className="dialog-kicker">{t("dialog.irreversible")}</p>
         <h2 id={titleId}>{title}</h2>
