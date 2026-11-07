@@ -22,9 +22,6 @@ pub(crate) struct FileState {
 pub(crate) fn unsafe_entry() -> io::Error {
     io::Error::other("Managed media identity could not be verified")
 }
-pub(crate) fn verbatim(path: &Path) -> io::Result<std::path::PathBuf> {
-    Ok(path.to_path_buf())
-}
 pub(crate) fn identity(file: &File) -> io::Result<Identity> {
     let m = file.metadata()?;
     Ok(Identity(m.dev(), m.ino()))

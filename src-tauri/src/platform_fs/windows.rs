@@ -5,7 +5,7 @@ use std::{
     io,
     mem::{offset_of, size_of, MaybeUninit},
     os::windows::{
-        ffi::{OsStrExt, OsStringExt},
+        ffi::OsStrExt,
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
     path::{Component, Path, Prefix},
@@ -769,38 +769,6 @@ fn path_components(path: &Path) -> io::Result<(u8, Vec<String>)> {
         return Err(unsafe_entry());
     }
     Ok((drive, names))
-}
-
-/// SQLite's Win32 VFS opens the path string it is given with a plain
-/// CreateFileW, which stops at MAX_PATH. The capability walk above is
-/// component-wise and already long-path safe, so only SQLite needs the
-/// extended-length `\\?\` form. A plain drive path is prefixed and separators
-/// normalized; an already-verbatim path and rejected namespaces behave like
-/// path_components.
-pub(crate) fn verbatim(path: &Path) -> io::Result<std::path::PathBuf> {
-    let prefix = match path.components().next() {
-        Some(Component::Prefix(prefix)) => prefix,
-        _ => return Err(unsafe_entry()),
-    };
-    match prefix.kind() {
-        Prefix::VerbatimDisk(_) => Ok(path.to_path_buf()),
-        Prefix::Disk(_) => {
-            let raw = path.as_os_str().encode_wide().collect::<Vec<_>>();
-            let mut wide = Vec::with_capacity(raw.len() + 4);
-            wide.extend_from_slice(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16]);
-            for unit in raw {
-                wide.push(if unit == b'/' as u16 {
-                    b'\\' as u16
-                } else {
-                    unit
-                });
-            }
-            Ok(std::path::PathBuf::from(std::ffi::OsString::from_wide(
-                &wide,
-            )))
-        }
-        _ => Err(unsafe_entry()),
-    }
 }
 pub(crate) struct Directory {
     file: File,

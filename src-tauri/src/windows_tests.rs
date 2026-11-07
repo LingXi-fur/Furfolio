@@ -422,10 +422,14 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     destination.push("备份 目标");
     fs::create_dir_all(&destination).unwrap();
     let db = Database::initialize(&library).unwrap_or_else(|error| {
-        let verbatim = platform_fs::verbatim(&library.join("furfolio.sqlite3")).unwrap();
-        match fs::File::open(&verbatim) {
-            Ok(_) => eprintln!("DIAG verbatim db open: OK"),
-            Err(io) => eprintln!("DIAG verbatim db open: {io} raw={:?}", io.raw_os_error()),
+        let plain = library.join("furfolio.sqlite3");
+        match fs::File::open(verbatim_for_test(&plain)) {
+            Ok(_) => eprintln!("DIAG std verbatim open: OK"),
+            Err(io) => eprintln!("DIAG std verbatim open: {io} raw={:?}", io.raw_os_error()),
+        }
+        match rusqlite::Connection::open(&plain) {
+            Ok(_) => eprintln!("DIAG sqlite plain open: OK"),
+            Err(sql) => eprintln!("DIAG sqlite plain open: {sql:?}"),
         }
         panic!("deep-path initialize failed: {error:?}");
     });
@@ -466,5 +470,14 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     assert!(output.join("manifest.json").is_file());
     // std::fs::remove_dir_all recurses with plain Win32 paths, so the deep child
     // names would stop at MAX_PATH; delete through the extended-length form.
-    fs::remove_dir_all(platform_fs::verbatim(&root).unwrap()).unwrap();
+    fs::remove_dir_all(verbatim_for_test(&root)).unwrap();
+}
+
+/// A `\\?\`-prefixed copy of an absolute drive path, so std::fs APIs that do
+/// not prepend the extended-length prefix themselves can reach deep names.
+fn verbatim_for_test(path: &std::path::Path) -> std::path::PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let mut wide = vec![b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    wide.extend(path.as_os_str().encode_wide());
+    std::path::PathBuf::from(std::ffi::OsString::from_wide(&wide))
 }

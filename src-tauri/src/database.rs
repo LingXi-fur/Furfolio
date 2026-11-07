@@ -237,7 +237,7 @@ impl Database {
     ) -> Result<(Connection, crate::media_store::SourceDatabase), AppError> {
         let source = crate::media_store::SourceDatabase::open(self.library_root()?)?;
         let connection = Connection::open_with_flags(
-            &crate::platform_fs::verbatim(&self.path)?,
+            &self.path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::ZERO)?;
@@ -286,7 +286,7 @@ impl Database {
 
     pub fn open(&self) -> Result<Connection, AppError> {
         let connection = Connection::open_with_flags(
-            &crate::platform_fs::verbatim(&self.path)?,
+            &self.path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )?;
         configure_connection(&connection)?;
