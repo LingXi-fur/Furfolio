@@ -24,7 +24,7 @@ Its interface treats each character as a record—not as content for a dashboard
 - Create, browse, edit, and delete character records
 - Store name, species, pronouns, tags, signature colors, description, and private notes
 - Search by character name, species, or tag; press `/` to focus search
-- Navigate through a sidebar table of contents with archive plate numbering, page-turn view transitions, and theme cross-fades
+- Navigate through a sidebar table of contents with archive plate numbering, soft view transitions, and theme cross-fades
 - Switch between English and Simplified Chinese
 - Follow system appearance or choose light/dark theme
 - Persist data in a local SQLite database through typed Tauri commands
@@ -62,7 +62,7 @@ The copy includes private notes and original images; SQLite pages may retain his
 | --- | --- |
 | **Characters first** | User-created OCs lead every library card and detail view. Furfolio adds no mascot or invented character appearance. |
 | **Local by default** | Records remain on the device. No account or network service is required. |
-| **Calm archive language** | Paper layers, swatches, record numbers, index lines, and restrained depth replace glassmorphism and decorative gradients. |
+| **Calm archive language** | A cream canvas, rounded white cards, and soft cherry-blossom and sage accents replace glassmorphism and decorative gradients. |
 | **Portable ownership** | Complete export and restore are planned as core product capabilities, not premium extras. |
 | **Credits matter** | The reference-gallery frontend keeps artist credits, source text, and image notes alongside each managed reference. |
 | **Accessible together** | Keyboard use, meaningful control names, responsive layouts, and English/Chinese copy ship as one interface. |
