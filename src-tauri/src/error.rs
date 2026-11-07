@@ -38,6 +38,21 @@ pub(crate) enum BackupError {
     CleanupPending(String),
 }
 
+/// Restore failures deliberately carry no source path, SQL or OS diagnostic.
+#[derive(Debug)]
+pub(crate) enum RestoreError {
+    Busy,
+    #[cfg(any(target_os = "macos", windows))]
+    NotEmpty,
+    #[cfg(any(target_os = "macos", windows))]
+    Integrity,
+    #[cfg(any(target_os = "macos", windows))]
+    Limit,
+    Destination,
+    Unsupported,
+    Failed,
+}
+
 #[derive(Debug)]
 pub enum AppError {
     InvalidInput(&'static str),
@@ -50,6 +65,7 @@ pub enum AppError {
     Database(SqliteError),
     Io(std::io::Error),
     Backup(BackupError),
+    Restore(RestoreError),
 }
 
 impl Display for AppError {
@@ -121,6 +137,18 @@ impl CommandError {
                 BackupError::DurabilityUncertain(_) => ("backupDurabilityUncertain", "The backup was published but its durability could not be confirmed. Keep and verify the published backup; do not blindly retry"),
                 #[cfg(any(target_os = "macos", windows))]
                 BackupError::CleanupPending(_) => ("backupCleanupPending", "An incomplete backup remains and needs safe manual inspection"),
+            },
+            AppError::Restore(error) => match error {
+                RestoreError::Busy => ("restoreBusy", "Another library or media operation is in progress"),
+                #[cfg(any(target_os = "macos", windows))]
+                RestoreError::NotEmpty => ("restoreNotEmpty", "Restore is only available into an empty library"),
+                #[cfg(any(target_os = "macos", windows))]
+                RestoreError::Integrity => ("restoreIntegrity", "The backup could not pass restore integrity checks"),
+                #[cfg(any(target_os = "macos", windows))]
+                RestoreError::Limit => ("restoreLimit", "The backup exceeds the supported restore limits"),
+                RestoreError::Destination => ("restoreDestination", "Select a safe existing backup folder outside this library"),
+                RestoreError::Unsupported => ("restoreUnsupported", "Safe restore is not supported on this platform"),
+                RestoreError::Failed => ("restoreFailed", "The backup could not be restored"),
             },
             AppError::Database(_) | AppError::Io(_) => (
                 "storageError",

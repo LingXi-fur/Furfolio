@@ -159,6 +159,34 @@ pub async fn export_library_backup(
     .map_err(Into::into)
 }
 
+/// No JS-supplied source path is accepted by this command.
+#[tauri::command]
+pub async fn restore_library_backup(
+    app: tauri::AppHandle,
+    database: State<'_, Database>,
+) -> Result<Option<crate::models::RestoreResult>, CommandError> {
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::restore::restore_with_picker(&database, || {
+            app.dialog()
+                .file()
+                .blocking_pick_folder()
+                .map(|path| path.into_path())
+                .transpose()
+                .map_err(|_| {
+                    crate::error::AppError::Restore(crate::error::RestoreError::Destination)
+                })
+        })
+    })
+    .await
+    .map_err(|_| {
+        CommandError::from(crate::error::AppError::Restore(
+            crate::error::RestoreError::Failed,
+        ))
+    })?
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn retry_media_cleanup(
     database: State<'_, Database>,

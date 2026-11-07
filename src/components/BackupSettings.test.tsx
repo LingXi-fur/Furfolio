@@ -52,7 +52,7 @@ describe("BackupSettings", () => {
       const dialog = screen.getByRole("dialog", { name: "Library backup" });
       expect(showModal).toHaveBeenCalledOnce();
       expect(dialog).toHaveAccessibleDescription(/unencrypted.*private notes.*original images.*SQLite pages.*historical content/i);
-      expect(within(dialog).getByText(/restore is not implemented/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/this export can be restored into a fresh furfolio library/i)).toBeInTheDocument();
       expect(within(dialog).getByText(/macOS and Windows.*64 MiB.*10,000.*1,000.*2 GiB.*2 MiB/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Close settings" })).toHaveFocus();
       const button = screen.getByRole("button", { name: "Choose folder and export" });
@@ -200,7 +200,7 @@ describe("BackupSettings", () => {
     await i18n.changeLanguage("zh-CN");
     const user = await openSettings();
     expect(screen.getByRole("dialog", { name: "资料库备份" })).toHaveAccessibleDescription(/未加密.*私密备注.*原图.*SQLite.*历史内容/);
-    expect(screen.getByText(/尚未实现恢复/)).toBeInTheDocument();
+    expect(screen.getByText(/此导出可恢复到全新的/)).toBeInTheDocument();
     invoke.mockRejectedValueOnce({ code: "backupNoSpace", message: "secret" }).mockResolvedValueOnce(result);
     await user.click(screen.getByRole("checkbox", { name: /我已了解/ }));
     await user.click(screen.getByRole("button", { name: "选择文件夹并导出" }));

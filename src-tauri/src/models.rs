@@ -112,6 +112,14 @@ pub struct BackupExportResult {
     pub total_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub character_count: u64,
+    pub asset_count: u64,
+    pub total_bytes: u64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaCleanupStatus {

@@ -19,6 +19,7 @@ interface LibraryViewProps {
   onOpen: (id: string) => void;
   onRetry: () => void;
   onDismissNotice: () => void;
+  onRestore: () => void;
 }
 
 function isRendered(element: HTMLElement | null) {
@@ -29,7 +30,7 @@ function isRendered(element: HTMLElement | null) {
   return element !== null;
 }
 
-export function LibraryView({ characters, loading, error, notice, openingCharacterId, query, returnFocusTarget, onReturnFocus, onQueryChange, onCreate, onOpen, onRetry, onDismissNotice }: LibraryViewProps) {
+export function LibraryView({ characters, loading, error, notice, openingCharacterId, query, returnFocusTarget, onReturnFocus, onQueryChange, onCreate, onOpen, onRetry, onDismissNotice, onRestore }: LibraryViewProps) {
   const { t } = useTranslation();
   const loadingRef = useRef<HTMLElement>(null);
   const errorRef = useRef<HTMLElement>(null);
@@ -143,7 +144,7 @@ export function LibraryView({ characters, loading, error, notice, openingCharact
             <button ref={createRef} className="primary-button" type="button" onClick={onCreate}>
               {t("empty.create")} <ArrowRightIcon />
             </button>
-            <button className="secondary-button" type="button" disabled title={t("comingSoon")}>{t("empty.restore")}</button>
+            <button className="secondary-button" type="button" onClick={onRestore}>{t("empty.restore")}</button>
           </div>
           <aside className="privacy-note">
             <span className="privacy-icon"><HomeIcon /></span>

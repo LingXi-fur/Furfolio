@@ -6,6 +6,7 @@ import { BackupSettings } from "./components/BackupSettings";
 import { CharacterDetail } from "./components/CharacterDetail";
 import { CharacterForm } from "./components/CharacterForm";
 import { LibraryView } from "./components/LibraryView";
+import { RestoreSettings } from "./components/RestoreSettings";
 import { MoonIcon, SunIcon } from "./components/icons";
 import { isAppliedCleanup, mediaCleanupStatus, retryMediaCleanup } from "./data/assets";
 import {
@@ -110,6 +111,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [view, setView] = useState<View>({ name: "library" });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [selected, setSelected] = useState<Character | null>(null);
@@ -423,6 +425,14 @@ function App() {
     });
   }
 
+  function handleRestored() {
+    setSelected(null);
+    setLibraryQuery("");
+    setLibraryError(null);
+    showLibrary();
+    void loadLibrary();
+  }
+
   return (
     <div className={`app-shell view-${view.name}`}>
       <aside className="app-rail">
@@ -505,12 +515,13 @@ function App() {
 
       <div className="app-content">
         {cleanupWarning && <div className="media-cleanup-warning" role="alert"><p>{t(cleanupWarning === "pending" ? "gallery.cleanupPending" : "gallery.cleanupUnknown")}</p><button className="secondary-button" type="button" disabled={cleanupRetrying} onClick={() => void retryCleanup()}>{cleanupRetrying ? t("gallery.cleanupRetrying") : t("gallery.retryCleanup")}</button></div>}
-        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={libraryError} notice={libraryNotice ?? mediaLibraryNotice} openingCharacterId={openingCharacterId} query={libraryQuery} returnFocusTarget={libraryFocusTarget} onReturnFocus={() => setLibraryFocusTarget(null)} onQueryChange={setLibraryQuery} onCreate={() => { setError(null); setLibraryNotice(null); navigate({ name: "create" }); }} onOpen={(id) => void openCharacter(id, "library")} onRetry={() => void loadLibrary()} onDismissNotice={() => { setLibraryNotice(null); setMediaLibraryNotice(null); }} />}
+        {view.name === "library" && <LibraryView characters={characters} loading={loading} error={libraryError} notice={libraryNotice ?? mediaLibraryNotice} openingCharacterId={openingCharacterId} query={libraryQuery} returnFocusTarget={libraryFocusTarget} onReturnFocus={() => setLibraryFocusTarget(null)} onQueryChange={setLibraryQuery} onCreate={() => { setError(null); setLibraryNotice(null); navigate({ name: "create" }); }} onOpen={(id) => void openCharacter(id, "library")} onRetry={() => void loadLibrary()} onDismissNotice={() => { setLibraryNotice(null); setMediaLibraryNotice(null); }} onRestore={() => setRestoreOpen(true)} />}
         {view.name === "create" && <CharacterForm saving={saving} error={error} onCancel={() => showLibrary("create")} onSubmit={saveCharacter} />}
         {view.name === "detail" && selected && <CharacterDetail character={selected} plateIndex={characters.findIndex((entry) => entry.id === selected.id) + 1 || 1} deleting={deleting} mediaBusy={busyCharacters.has(selected.id)} onChanged={(id) => void refreshMediaCharacter(id)} onMediaBusyChange={changeMediaBusy} onCleanupPending={markCleanupPending} onCheckCleanup={() => void checkCleanup()} error={error ?? (mediaDetailError?.characterId === selected.id ? mediaDetailError.message : null)} onBack={() => showLibrary(libraryFocusTarget ?? { characterId: selected.id, origin: "library" })} onEdit={() => navigate({ name: "edit", id: selected.id })} onDelete={removeCharacter} />}
         {view.name === "edit" && selected && <CharacterForm character={selected} saving={saving} error={error} onCancel={() => navigate({ name: "detail", id: selected.id })} onSubmit={saveCharacter} />}
       </div>
       {settingsOpen && <BackupSettings returnFocusRef={settingsButtonRef} onClose={() => setSettingsOpen(false)} />}
+      {restoreOpen && <RestoreSettings onClose={() => setRestoreOpen(false)} onRestored={handleRestored} />}
     </div>
   );
 }

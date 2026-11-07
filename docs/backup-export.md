@@ -1,6 +1,6 @@
 # Directory backup export
 
-**Status:** export is implemented for macOS. Integrated checks pass: 180 frontend tests, 63 Rust tests, lint, TypeScript, formatting, Clippy, and an offline locked Tauri debug build. Backend tests exercise real temporary SQLite libraries and synthetic media. Native folder selection through completed export has not been accepted end to end. Restore is not implemented; continue using non-critical data.
+**Status:** export is implemented for macOS. Integrated checks pass: 206 frontend tests, 76 Rust tests, lint, TypeScript, formatting, Clippy, and an offline locked Tauri debug build. Backend tests exercise real temporary SQLite libraries and synthetic media. Native folder selection through completed export has not been accepted end to end. Empty-library restore is implemented and backend-tested on macOS and Windows; native desktop restore acceptance remains unverified. Continue using non-critical data.
 
 This document describes the first export format and its safety boundaries. It is not a claim of completed native desktop acceptance.
 
@@ -60,7 +60,7 @@ Available-space checks are estimates. A later write can still fail. File and dir
 - **Published, durability uncertain:** the final directory was created, but the parent-directory synchronization failed. Inspect that directory before deciding what to do next. Do not treat it as absent or retry blindly.
 - **Incomplete staging directory remains:** a `.furfolio-backup-<UUID>.partial` directory may remain when safe cleanup cannot be established. It is not a successful backup. Unknown contents are not recursively removed, and old partial directories are not automatically cleaned up.
 
-Export is not restore. Until a separately implemented and tested restore workflow exists, a successful export must not be advertised as a proven recovery path.
+Export is not restore. Restore imports an exported directory into an empty library only and verifies every file against the manifest before materializing it; it never merges with or overwrites an existing library. Native restore acceptance is still unverified, so a successful export is not yet an end-to-end proven recovery path.
 
 ## Acceptance requirements
 

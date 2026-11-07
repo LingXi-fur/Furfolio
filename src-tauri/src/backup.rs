@@ -541,15 +541,15 @@ impl Write for BoundedManifest<'_> {
     }
 }
 #[cfg(any(target_os = "macos", windows))]
-fn uuid(value: &str) -> bool {
+pub(crate) fn uuid(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok_and(|u| u.get_version_num() == 4 && u.to_string() == value)
 }
 #[cfg(any(target_os = "macos", windows))]
-fn managed(value: &str, extension: &str) -> bool {
+pub(crate) fn managed(value: &str, extension: &str) -> bool {
     value.strip_suffix(extension).is_some_and(uuid)
 }
 #[cfg(any(target_os = "macos", windows))]
-fn digest(value: &str) -> bool {
+pub(crate) fn digest(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
