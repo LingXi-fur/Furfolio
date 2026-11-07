@@ -435,9 +435,9 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     .unwrap()
     .id;
     // Cancel semantics on a deep path: no picker selection is not an error.
-    media::import_selected(&db, &character, None)
+    assert!(media::import_selected(&db, &character, None)
         .unwrap()
-        .unwrap_none();
+        .is_none());
     // A real import under the deep path also works: the source lives on the normal
     // visible path while the library itself sits deep.
     let source = root.join("合成 原图.png");
