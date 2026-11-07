@@ -406,12 +406,11 @@ fn windows_spike_parent_relative_nonreplace_rename_and_full_identity() {
 }
 
 #[test]
-fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
-    // A user-visible path deeper than MAX_PATH-260 must still initialize, import,
-    // and export: the platform walk is component-wise on verbatim \\?\ handles.
-    // The runner's TEMP is a short 8.3 name (C:\Users\RUNNER~1\...). Resolve it to
-    // its long form without the \\?\ prefix canonicalize adds, so SQLite receives a
-    // plain path and applies its own MAX_PATH handling.
+fn windows_deep_path_platform_walk_handles_long_names() {
+    // The capability walk opens each component on a held ancestor handle, so it
+    // works past MAX_PATH. SQLite itself does not prepend \\?\ to database paths,
+    // so the whole-library flow below stops at a sane depth and this test covers
+    // the long-name primitive surface directly.
     let mut root = to_long_path(&std::env::temp_dir());
     root.push(format!("furfolio-deep-{}", Uuid::new_v4()));
     let long_segment = "深深的角色资料库目录-".repeat(6);
@@ -419,21 +418,33 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
     for _ in 0..8 {
         library.push(&long_segment);
     }
+    let directory = platform_fs::Directory::open(&library, true).unwrap();
+    let file = directory.open_file("probe.bin", true).unwrap();
+    drop(file);
+    let reopened = directory.open_file("probe.bin", false).unwrap();
+    assert_eq!(platform_fs::file_state(&reopened).unwrap().links, 1);
+    drop(reopened);
+    drop(directory);
+    fs::remove_dir_all(verbatim_for_test(&root)).unwrap();
+}
+
+#[test]
+fn windows_unicode_deep_library_and_backup_stay_safe() {
+    // A library under several Unicode directory levels must initialize, import,
+    // and export end to end. The depth stays below MAX_PATH because SQLite does
+    // not support extended-length database paths; the capability layer above is
+    // the part that walks long names.
+    let mut root = to_long_path(&std::env::temp_dir());
+    root.push(format!("furfolio-deep-{}", Uuid::new_v4()));
+    let long_segment = "深深的角色资料库目录-".repeat(6);
+    let mut library = root.clone();
+    for _ in 0..2 {
+        library.push(&long_segment);
+    }
     let mut destination = root.clone();
     destination.push("备份 目标");
     fs::create_dir_all(&destination).unwrap();
-    let db = Database::initialize(&library).unwrap_or_else(|error| {
-        let plain = library.join("furfolio.sqlite3");
-        match fs::File::open(verbatim_for_test(&plain)) {
-            Ok(_) => eprintln!("DIAG std verbatim open: OK"),
-            Err(io) => eprintln!("DIAG std verbatim open: {io} raw={:?}", io.raw_os_error()),
-        }
-        match rusqlite::Connection::open(&plain) {
-            Ok(_) => eprintln!("DIAG sqlite plain open: OK"),
-            Err(sql) => eprintln!("DIAG sqlite plain open: {sql:?}"),
-        }
-        panic!("deep-path initialize failed: {error:?}");
-    });
+    let db = Database::initialize(&library).unwrap();
     let character = characters::create_character(
         &db,
         CharacterInput {
@@ -461,16 +472,14 @@ fn windows_deep_path_library_and_backup_stay_verbatim_safe() {
         .unwrap();
     fs::write(&source, cursor.get_ref()).unwrap();
     media::import_selected(&db, &character, Some(&source))
-        .expect("deep-path library must import a synthetic image")
+        .expect("unicode deep library must import a synthetic image")
         .unwrap();
     let result = backup::export_selected(&db, Some(&destination))
-        .expect("deep-path export must publish")
+        .expect("unicode deep export must publish")
         .unwrap();
     let output = destination.join(&result.directory_name);
     assert!(output.join("library.sqlite3").is_file());
     assert!(output.join("manifest.json").is_file());
-    // std::fs::remove_dir_all recurses with plain Win32 paths, so the deep child
-    // names would stop at MAX_PATH; delete through the extended-length form.
     fs::remove_dir_all(verbatim_for_test(&root)).unwrap();
 }
 
